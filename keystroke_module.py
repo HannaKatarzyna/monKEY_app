@@ -6,6 +6,15 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
+def count_time_from_0(df):
+    s1 = pd.Series(df['Timestamp'].iloc[1:]).reset_index()
+    s2 = pd.Series(df['Timestamp'].iloc[:-1]).reset_index()
+    time_diff = (s1['Timestamp'] - s2['Timestamp']
+                 ).apply(lambda x: x.total_seconds())
+    time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
+    return time_diff.cumsum()
+
+
 def filter_record(data, key_filter=False):
     # cut first key -> wrong, confusing times [1:]
 
