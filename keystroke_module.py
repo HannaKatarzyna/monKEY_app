@@ -1,9 +1,19 @@
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from dateutil import parser as date_parser
+from datetime import datetime
+
+
+def is_date_parsing(date_str):
+    try:
+        return bool(date_parser.parse(date_str))
+    except ValueError:
+        return False
 
 
 def count_time_from_0(df):
@@ -37,7 +47,7 @@ def filter_record(data, key_filter=False):
 # jak dużo danych tracimy w wyniku filtracji? ~10%
 
 
-# def feature_extract_method_1(data, assumed_length=360, window_time=90, normalize_option=False):
+# def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
 
 
 def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
@@ -51,14 +61,18 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
 
     # fig, axs = plt.subplots(figsize=[4, 3])
 
+    typical_number = 0
+    flag = 0
     for i in range(n_windows):
 
         df_temp = data[(data[time_feature] > i*window_time)
                        & (data[time_feature] < (i+1)*window_time)]
 
+        typical_number += len(df_temp)
         if len(df_temp) < 6:
-            print('Not enough samples (', len(df_temp),
-                  ') in this window - it has to be omitted')
+            flag += 1
+            # print('Not enough samples (', len(df_temp),
+            #       ') in this window - it has to be omitted')
             continue
 
         # # to normalize here only for FLIGHT TIME: zero-mean?
@@ -112,7 +126,79 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
     va[9] = np.std(upper_triangle, ddof=1)
     va[10] = np.sum(upper_triangle)
 
-    return va
+    print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
+    # print('All windows: ', n_windows)
+    # print('Typical number of keys: ', typical_number)
+    return va, flag/n_windows
 
 # https://scikit-learn.org/stable/modules/density.html#kernel-density-estimation
 # https://stackabuse.com/kernel-density-estimation-in-python-using-scikit-learn/
+
+
+class nqDataset:
+    def __init__(self, filename1, filename2):
+
+        # load data
+        df1 = pd.read_csv(filename1)
+        df2 = pd.read_csv(filename2)
+        df_conc = pd.concat([df1, df2], ignore_index=True)
+        df_conc.rename(columns={"updrs108": "updrs",
+                       "gt": "Parkinsons"}, inplace=True)
+        df_conc.drop('nqScore', axis=1, inplace=True)
+        df_conc['Parkinsons'] = df_conc['Parkinsons'].map(
+            {True: 1.0, False: 0.0})
+
+        self.user_info = df_conc
+
+        # split for train and test ( -> maybe method)
+        self.train_df, self.test_df = train_test_split(
+            self.user_info, test_size=0.3, random_state=42)
+
+        self.train_ground_truth = self.train_df['Parkinsons'].to_numpy()
+        self.test_ground_truth = self.test_df['Parkinsons'].to_numpy()
+        self.trainset = None
+        self.testset = None
+
+    def show_stats(self):
+        print('Patients with PD: ', len(
+            self.user_info[self.user_info['Parkinsons'] == 1.0]))
+        print('Patients without PD: ', len(
+            self.user_info[self.user_info['Parkinsons'] == 0.0]))
+        plt.figure(figsize=[4, 3])
+        sns.countplot(x='Parkinsons', data=self.user_info)
+        plt.xlabel('Parkinson\'s disease')
+
+    @staticmethod
+    def load_record(filename):
+        df = pd.read_csv(filename, header=None, names=[
+            'pressedKey', 'holdTime', 'releaseTime', 'pressTime'])
+        df['flightTime'] = df['pressTime'] - \
+            pd.concat([pd.Series(0.0), df['releaseTime']], ignore_index=True)
+        df['latencyTime'] = df['flightTime'] + \
+            pd.concat([pd.Series(0.0), df['holdTime']], ignore_index=True)
+
+        return df
+
+    def prepare_dataset(self, path, feature_extract=2):
+
+        if feature_extract == 2:
+            self.trainset = np.zeros([len(self.train_df), 22])
+
+        for i, row in self.train_df.reset_index(inplace=False).iterrows():
+            # DO NOT iterate: https://stackoverflow.com/questions/16476924/how-to-iterate-over-rows-in-a-dataframe-in-pandas
+            # use .apply() instead
+
+            print(i)
+            df_ID = self.load_record(path + row['file_1'])
+            df_ID = filter_record(df_ID, key_filter=True)
+
+            if feature_extract == 2:
+                va_HT, typi = feature_extract_method_2(
+                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
+                va_NFT, _ = feature_extract_method_2(
+                    df_ID, dynamic_feature='flightTime',  time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
+                self.trainset[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
+                typical_number += typi
+
+            if typi < 400:
+                print('Special case - number of keys: ', typi)
