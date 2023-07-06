@@ -7,6 +7,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from dateutil import parser as date_parser
 from datetime import datetime
+import warnings
 
 
 def is_date_parsing(date_str):
@@ -29,8 +30,9 @@ def filter_record(data, key_filter=False):
     # cut first key -> wrong, confusing times [1:]
 
     # basic time filters
-    df_new = data.drop(data[data['holdTime'] > 5].index, inplace=False)
+    df_new = data.drop(data[data['holdTime'] > 1].index, inplace=False)
     df_new.drop(df_new[df_new['holdTime'] < 0].index, inplace=True)
+    df_new.drop(df_new[df_new['flightTime'] > 3].index, inplace=True)
     # df_new.drop(df_new[df_new['releaseTime'] < 0].index, inplace=True)
 
     if key_filter:
@@ -47,7 +49,40 @@ def filter_record(data, key_filter=False):
 # jak dużo danych tracimy w wyniku filtracji? ~10%
 
 
-# def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
+def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
+
+    n_features = 6
+    # number of non-overlapping windows
+    n_windows = int(assumed_length/window_time)
+    va = np.zeros([n_windows, n_features])
+
+    for i in range(n_windows):
+        df_temp = data[(data[time_feature] > i*window_time)
+                       & (data[time_feature] < (i+1)*window_time)]
+        Q1 = df_temp[dynamic_feature].quantile(q=0.25)
+        Q2 = df_temp[dynamic_feature].quantile(q=0.5)
+        Q3 = df_temp[dynamic_feature].quantile(q=0.75)
+        IQR = Q3 - Q1
+        upper_lim = Q3 + 1.5*IQR
+        lower_lim = Q1 - 1.5*IQR
+        vout = len(df_temp[(df_temp[dynamic_feature] < lower_lim)
+                           | (df_temp[dynamic_feature] > upper_lim)])
+        try:
+            viqr = (Q2 - Q1)/(Q3 - Q1)
+        except RuntimeWarning:
+            print(' RuntimeWarning!!!')
+            # print(' viqr', viqr)
+        try:
+            hist, bin_edges = np.histogram(
+                df_temp[dynamic_feature], bins=4, density=True, range=(0.0, 0.5))
+            vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
+        except RuntimeWarning:
+            print(' RuntimeWarning!!!')
+            # print(' vhist', vhist1, vhist2, vhist3, vhist4)
+
+        va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
+
+    return np.nanmean(va, axis=0)
 
 
 def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
@@ -76,12 +111,9 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
             continue
 
         # # to normalize here only for FLIGHT TIME: zero-mean?
-        # if normalize_option:
-        #     scaler = MinMaxScaler()
-        #     # scaler = StandardScaler()
-        #     scaler.fit(df_temp[dynamic_feature])
-        #     df_temp[dynamic_feature] = scaler.transform(
-        #         df_temp[dynamic_feature])
+        if normalize_option:
+            df_temp[dynamic_feature] = df_temp[dynamic_feature] - \
+                df_temp[dynamic_feature].mean()
 
         # first order
         stat_moments[0, i] = df_temp[dynamic_feature].mean()
@@ -95,7 +127,7 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
         # print(len(df_temp))
         # print(stat_moments[0, i])
         # PDF estimation via KDE
-        X = df_temp['holdTime'].to_numpy().reshape(-1, 1)
+        X = df_temp[time_feature].to_numpy().reshape(-1, 1)
 
         bandwidth = np.arange(0.05, 2, .1)
         kde = KernelDensity(kernel='gaussian')
@@ -114,7 +146,6 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
         va[i*2], va[i*2+1] = np.mean(stat_moments[i, :]
                                      ), np.std(stat_moments[i, :], ddof=1)
 
-    # a = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     # # extract values only from upper triangle of matrix
     # upper_triangle = a[np.triu_indices_from(a)]
     # # or above the diagonal
@@ -126,7 +157,14 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
     va[9] = np.std(upper_triangle, ddof=1)
     va[10] = np.sum(upper_triangle)
 
-    print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
+    # mean diff between L and R
+    tmpL = data[data['Hand'] == 'L']
+    tmpR = data[data['Hand'] == 'R']
+    print(tmpL.shape)
+    print(tmpR.shape)
+    va[10] = abs(tmpL[dynamic_feature].mean()-tmpR[dynamic_feature].mean())
+
+    # print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
     # print('All windows: ', n_windows)
     # print('Typical number of keys: ', typical_number)
     return va, flag/n_windows
@@ -150,14 +188,11 @@ class nqDataset:
 
         self.user_info = df_conc
 
-        # split for train and test ( -> maybe method)
-        self.train_df, self.test_df = train_test_split(
-            self.user_info, test_size=0.3, random_state=42)
-
-        self.train_ground_truth = self.train_df['Parkinsons'].to_numpy()
-        self.test_ground_truth = self.test_df['Parkinsons'].to_numpy()
         self.trainset = None
         self.testset = None
+        self.train_ground_truth = None
+        self.test_ground_truth = None
+        self.features = None
 
     def show_stats(self):
         print('Patients with PD: ', len(
@@ -182,23 +217,32 @@ class nqDataset:
     def prepare_dataset(self, path, feature_extract=2):
 
         if feature_extract == 2:
-            self.trainset = np.zeros([len(self.train_df), 22])
+            self.features = np.zeros([len(self.user_info), 22])
+        else:
+            self.features = np.zeros([len(self.user_info), 6])
 
-        for i, row in self.train_df.reset_index(inplace=False).iterrows():
-            # DO NOT iterate: https://stackoverflow.com/questions/16476924/how-to-iterate-over-rows-in-a-dataframe-in-pandas
-            # use .apply() instead
+        # DO NOT iterate: https://stackoverflow.com/questions/16476924/how-to-iterate-over-rows-in-a-dataframe-in-pandas
+        # use .apply() instead
 
+        for i, row in self.user_info.iterrows():
             print(i)
             df_ID = self.load_record(path + row['file_1'])
             df_ID = filter_record(df_ID, key_filter=True)
+
+            if feature_extract == 1:
+                va_HT = feature_extract_method_1(
+                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
+                self.features[i, :] = va_HT
 
             if feature_extract == 2:
                 va_HT, typi = feature_extract_method_2(
                     df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
                 va_NFT, _ = feature_extract_method_2(
-                    df_ID, dynamic_feature='flightTime',  time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
-                self.trainset[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
-                typical_number += typi
+                    df_ID, dynamic_feature='flightTime', time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
+                self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
 
-            if typi < 400:
-                print('Special case - number of keys: ', typi)
+            # if typi < 200:
+            #     print('Special case - number of keys: ', typi)
+
+        self.trainset, self.testset, self.train_ground_truth, self.test_ground_truth = train_test_split(
+            self.features, self.user_info['Parkinsons'].to_numpy(), test_size=0.3, random_state=42)
