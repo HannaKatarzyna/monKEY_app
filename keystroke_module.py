@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import re
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
@@ -7,7 +8,6 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from dateutil import parser as date_parser
 from datetime import datetime
-import warnings
 
 
 def is_date_parsing(date_str):
@@ -49,6 +49,19 @@ def filter_record(data, key_filter=False):
 # jak dużo danych tracimy w wyniku filtracji? ~10%
 
 
+def which_hand(key):
+    patternL = 'q|w|e|r|t|a|s|d|f|g|z|x|c|v|b'
+    patternR = 'y|u|i|o|p|h|j|k|l|n|m|comma|period|semicolon|slash'
+    if key == 'space':
+        return 'S'
+    elif re.match(patternL, key):
+        return 'L'
+    elif re.match(patternR, key):
+        return 'R'
+    else:
+        return 'N'
+
+
 def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
 
     n_features = 6
@@ -59,26 +72,21 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
     for i in range(n_windows):
         df_temp = data[(data[time_feature] > i*window_time)
                        & (data[time_feature] < (i+1)*window_time)]
-        Q1 = df_temp[dynamic_feature].quantile(q=0.25)
-        Q2 = df_temp[dynamic_feature].quantile(q=0.5)
-        Q3 = df_temp[dynamic_feature].quantile(q=0.75)
+
+        temp = df_temp[dynamic_feature]
+        temp = temp[~np.isnan(temp)]
+
+        Q1 = temp.quantile(q=0.25)
+        Q2 = temp.quantile(q=0.5)
+        Q3 = temp.quantile(q=0.75)
         IQR = Q3 - Q1
         upper_lim = Q3 + 1.5*IQR
         lower_lim = Q1 - 1.5*IQR
-        vout = len(df_temp[(df_temp[dynamic_feature] < lower_lim)
-                           | (df_temp[dynamic_feature] > upper_lim)])
-        try:
-            viqr = (Q2 - Q1)/(Q3 - Q1)
-        except RuntimeWarning:
-            print(' RuntimeWarning!!!')
-            # print(' viqr', viqr)
-        try:
-            hist, bin_edges = np.histogram(
-                df_temp[dynamic_feature], bins=4, density=True, range=(0.0, 0.5))
-            vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
-        except RuntimeWarning:
-            print(' RuntimeWarning!!!')
-            # print(' vhist', vhist1, vhist2, vhist3, vhist4)
+        vout = len(temp[(temp < lower_lim) | (temp > upper_lim)])
+        viqr = (Q2 - Q1)/(Q3 - Q1)
+        hist, bin_edges = np.histogram(
+            temp, bins=4, density=True, range=(0.0, 0.5))
+        vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
 
         va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
 
@@ -110,7 +118,7 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
             #       ') in this window - it has to be omitted')
             continue
 
-        # # to normalize here only for FLIGHT TIME: zero-mean?
+        # to normalize here only for FLIGHT TIME: zero-mean
         if normalize_option:
             df_temp[dynamic_feature] = df_temp[dynamic_feature] - \
                 df_temp[dynamic_feature].mean()
@@ -124,8 +132,8 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
         # fourth order
         stat_moments[3, i] = df_temp[dynamic_feature].skew()
 
-        # print(len(df_temp))
-        # print(stat_moments[0, i])
+        # TO DO: use params form article insetad of Gridsearch - ?
+
         # PDF estimation via KDE
         X = df_temp[time_feature].to_numpy().reshape(-1, 1)
 
@@ -211,15 +219,18 @@ class nqDataset:
             pd.concat([pd.Series(0.0), df['releaseTime']], ignore_index=True)
         df['latencyTime'] = df['flightTime'] + \
             pd.concat([pd.Series(0.0), df['holdTime']], ignore_index=True)
+        df['Hand'] = df['pressedKey'].apply(which_hand)
 
         return df
 
     def prepare_dataset(self, path, feature_extract=2):
 
         if feature_extract == 2:
-            self.features = np.zeros([len(self.user_info), 22])
+            n_features = 22
         else:
-            self.features = np.zeros([len(self.user_info), 6])
+            n_features = 6
+
+        self.features = np.zeros([len(self.user_info), n_features])
 
         # DO NOT iterate: https://stackoverflow.com/questions/16476924/how-to-iterate-over-rows-in-a-dataframe-in-pandas
         # use .apply() instead
@@ -231,7 +242,7 @@ class nqDataset:
 
             if feature_extract == 1:
                 va_HT = feature_extract_method_1(
-                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
+                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90)
                 self.features[i, :] = va_HT
 
             if feature_extract == 2:
