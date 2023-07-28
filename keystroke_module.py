@@ -26,6 +26,21 @@ def count_time_from_0(df):
     return time_diff.cumsum()
 
 
+def assign_cols(df):
+    cond = df['file_2'].apply(lambda x: isinstance(x, float))
+
+    df_1 = df[cond == True]     # NaNs as 2. file
+    df_1.drop(columns=['file_2'], inplace=True)
+
+    df_2 = df[cond == False]    # 2 files
+    df_3 = df_2.drop(columns=['file_2'], inplace=False)
+    df_4 = df_2.drop(columns=['file_1'], inplace=False)
+    df_4.rename(columns={"file_2": "file_1"}, inplace=True)
+
+    df_conc = pd.concat([df_1, df_3, df_4], ignore_index=True)
+    return df_conc
+
+
 def filter_record(data, key_filter=False):
     # cut first key -> wrong, confusing times [1:]
 
@@ -54,9 +69,9 @@ def which_hand(key):
     patternR = 'y|u|i|o|p|h|j|k|l|n|m|comma|period|semicolon|slash'
     if key == 'space':
         return 'S'
-    elif re.match(patternL, key):
+    elif re.match(patternL, str(key)):
         return 'L'
-    elif re.match(patternR, key):
+    elif re.match(patternR, str(key)):
         return 'R'
     else:
         return 'N'
@@ -93,7 +108,7 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
     return np.nanmean(va, axis=0)
 
 
-def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
+def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
 
     # number of non-overlapping windows
     n_windows = int(assumed_length/window_time)
@@ -102,10 +117,20 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
     stat_moments = np.zeros([4, n_windows])
     data_for_cov = np.zeros([n_windows, len(t_inter)])
 
-    # fig, axs = plt.subplots(figsize=[4, 3])
-
     typical_number = 0
     flag = 0
+
+    data = data_orig.copy()
+
+    fig, axs = plt.subplots(figsize=[4, 3])
+
+    # to normalize here only for FLIGHT TIME: zero-mean
+    if normalize_option:
+        mea = data_orig[dynamic_feature].mean()
+        data[dynamic_feature] -= mea
+        # data[dynamic_feature] = data_orig[dynamic_feature].apply(lambda x: x - mea)
+        # df_temp[dynamic_feature] = df_copied[dynamic_feature] - mea
+
     for i in range(n_windows):
 
         df_temp = data[(data[time_feature] > i*window_time)
@@ -118,11 +143,6 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
             #       ') in this window - it has to be omitted')
             continue
 
-        # to normalize here only for FLIGHT TIME: zero-mean
-        if normalize_option:
-            df_temp[dynamic_feature] = df_temp[dynamic_feature] - \
-                df_temp[dynamic_feature].mean()
-
         # first order
         stat_moments[0, i] = df_temp[dynamic_feature].mean()
         # second order
@@ -133,21 +153,24 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
         stat_moments[3, i] = df_temp[dynamic_feature].skew()
 
         # TO DO: use params form article insetad of Gridsearch - ?
+        # resulting in b = 0.0060, 0.0289, and 0.0300 for HT, NFT, and NP data respectively
 
         # PDF estimation via KDE
         X = df_temp[time_feature].to_numpy().reshape(-1, 1)
 
-        bandwidth = np.arange(0.05, 2, .1)
+        # bandwidth = np.arange(0.05, 2, .1)
+        bandwidth = np.array([0.05, 0.85, 1.00, 1.45, 1.75, 1.95])
         kde = KernelDensity(kernel='gaussian')
         grid = GridSearchCV(kde, {'bandwidth': bandwidth})
         grid.fit(X)
         kde = grid.best_estimator_
         # print("optimal bandwidth: " + "{:.2f}".format(kde.bandwidth))
-        # kde = KernelDensity(kernel='gaussian', bandwidth=1.9).fit(X)
+
+        # kde = KernelDensity(kernel='gaussian', bandwidth=b_param).fit(X)
         log_density = np.exp(kde.score_samples(t_inter.reshape(-1, 1)))
         data_for_cov[i, :] = log_density
 
-        # axs.plot(t_inter, log_density)
+        axs.plot(t_inter, log_density)
 
     va = np.zeros(11)
     for i in range(4):
@@ -168,13 +191,16 @@ def feature_extract_method_2(data, dynamic_feature='holdTime', time_feature='rel
     # mean diff between L and R
     tmpL = data[data['Hand'] == 'L']
     tmpR = data[data['Hand'] == 'R']
-    print(tmpL.shape)
-    print(tmpR.shape)
-    va[10] = abs(tmpL[dynamic_feature].mean()-tmpR[dynamic_feature].mean())
+    va[10] = abs(tmpL[dynamic_feature].mean() -
+                 tmpR[dynamic_feature].mean())  # abs or not - ?
 
     # print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
     # print('All windows: ', n_windows)
     # print('Typical number of keys: ', typical_number)
+
+    if np.count_nonzero(np.isnan(va)) > 0:
+        print(va)
+
     return va, flag/n_windows
 
 # https://scikit-learn.org/stable/modules/density.html#kernel-density-estimation
@@ -194,7 +220,8 @@ class nqDataset:
         df_conc['Parkinsons'] = df_conc['Parkinsons'].map(
             {True: 1.0, False: 0.0})
 
-        self.user_info = df_conc
+        # self.user_info = df_conc
+        self.user_info = assign_cols(df_conc)
 
         self.trainset = None
         self.testset = None
@@ -255,5 +282,6 @@ class nqDataset:
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
 
+        # shuffle + random_state
         self.trainset, self.testset, self.train_ground_truth, self.test_ground_truth = train_test_split(
-            self.features, self.user_info['Parkinsons'].to_numpy(), test_size=0.3, random_state=42)
+            self.features, self.user_info['Parkinsons'].to_numpy(), test_size=0.3, shuffle=True, random_state=42)
