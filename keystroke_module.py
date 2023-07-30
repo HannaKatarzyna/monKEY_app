@@ -111,11 +111,17 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
 def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
 
     # number of non-overlapping windows
-    n_windows = int(assumed_length/window_time)
+    # n_windows = int(assumed_length/window_time)
+    print(data_orig[time_feature].iloc[-1])
+    n_windows = int(data_orig[time_feature].iloc[-1]/window_time)
 
     t_inter = np.arange(0, 1.01, 0.01)  # for KDE
-    stat_moments = np.zeros([4, n_windows])
-    data_for_cov = np.zeros([n_windows, len(t_inter)])
+    stat_moments = np.empty((4, n_windows))
+    stat_moments.fill(np.nan)
+
+    # data_for_cov = np.zeros([n_windows, len(t_inter)])
+    data_for_cov = np.empty((n_windows, len(t_inter)))
+    data_for_cov.fill(np.nan)
 
     typical_number = 0
     flag = 0
@@ -174,15 +180,16 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
     va = np.zeros(11)
     for i in range(4):
-        va[i*2], va[i*2+1] = np.mean(stat_moments[i, :]
-                                     ), np.std(stat_moments[i, :], ddof=1)
+        va[i*2], va[i*2+1] = np.nanmean(stat_moments[i, :]
+                                        ), np.nanstd(stat_moments[i, :], ddof=1)
 
     # # extract values only from upper triangle of matrix
     # upper_triangle = a[np.triu_indices_from(a)]
     # # or above the diagonal
     # upper_triangle = a[np.triu_indices_from(a, k=1)]
 
-    cov_matrix = np.cov(data_for_cov)
+    dfc = data_for_cov[~np.isnan(data_for_cov).any(axis=1)]
+    cov_matrix = np.cov(dfc)
     upper_triangle = np.abs(cov_matrix[np.triu_indices_from(cov_matrix)])
     va[8] = np.mean(upper_triangle)
     va[9] = np.std(upper_triangle, ddof=1)
