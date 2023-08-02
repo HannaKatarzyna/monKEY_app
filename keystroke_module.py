@@ -8,7 +8,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from dateutil import parser as date_parser
 from datetime import datetime
-
+import warnings
 
 def is_date_parsing(date_str):
     try:
@@ -112,7 +112,6 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
     # number of non-overlapping windows
     # n_windows = int(assumed_length/window_time)
-    print(data_orig[time_feature].iloc[-1])
     n_windows = int(data_orig[time_feature].iloc[-1]/window_time)
 
     t_inter = np.arange(0, 1.01, 0.01)  # for KDE
@@ -125,10 +124,13 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
     typical_number = 0
     flag = 0
-
+    
     data = data_orig.copy()
 
-    fig, axs = plt.subplots(figsize=[4, 3])
+    warn_flag = 0
+    warnings.filterwarnings('error')
+
+    # fig, axs = plt.subplots(figsize=[4, 3])
 
     # to normalize here only for FLIGHT TIME: zero-mean
     if normalize_option:
@@ -176,40 +178,44 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         log_density = np.exp(kde.score_samples(t_inter.reshape(-1, 1)))
         data_for_cov[i, :] = log_density
 
-        axs.plot(t_inter, log_density)
+        # axs.plot(t_inter, log_density)
 
     va = np.zeros(11)
-    for i in range(4):
-        va[i*2], va[i*2+1] = np.nanmean(stat_moments[i, :]
-                                        ), np.nanstd(stat_moments[i, :], ddof=1)
+    try:
+        for i in range(4):
+            va[i*2], va[i*2+1] = np.nanmean(stat_moments[i, :]
+                                            ), np.nanstd(stat_moments[i, :], ddof=1)
 
-    # # extract values only from upper triangle of matrix
-    # upper_triangle = a[np.triu_indices_from(a)]
-    # # or above the diagonal
-    # upper_triangle = a[np.triu_indices_from(a, k=1)]
+        # # extract values only from upper triangle of matrix
+        # upper_triangle = a[np.triu_indices_from(a)]
+        # # or above the diagonal
+        # upper_triangle = a[np.triu_indices_from(a, k=1)]
 
-    dfc = data_for_cov[~np.isnan(data_for_cov).any(axis=1)]
-    cov_matrix = np.cov(dfc)
-    upper_triangle = np.abs(cov_matrix[np.triu_indices_from(cov_matrix)])
-    va[8] = np.mean(upper_triangle)
-    va[9] = np.std(upper_triangle, ddof=1)
-    va[10] = np.sum(upper_triangle)
+        dfc = data_for_cov[~np.isnan(data_for_cov).any(axis=1)]
+        cov_matrix = np.cov(dfc)
+        upper_triangle = np.abs(cov_matrix[np.triu_indices_from(cov_matrix)])
+        va[8] = np.mean(upper_triangle)
+        va[9] = np.std(upper_triangle, ddof=1)
+        va[10] = np.sum(upper_triangle)
 
-    # mean diff between L and R
-    tmpL = data[data['Hand'] == 'L']
-    tmpR = data[data['Hand'] == 'R']
-    va[10] = abs(tmpL[dynamic_feature].mean() -
-                 tmpR[dynamic_feature].mean())  # abs or not - ?
+        # mean diff between L and R
+        tmpL = data[data['Hand'] == 'L']
+        tmpR = data[data['Hand'] == 'R']
+        va[10] = abs(tmpL[dynamic_feature].mean() -
+                    tmpR[dynamic_feature].mean())  # abs or not - ?
 
-    # print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
-    # print('All windows: ', n_windows)
-    # print('Typical number of keys: ', typical_number)
+        print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
+        # print('All windows: ', n_windows)
+        # print('Typical number of keys: ', typical_number)
 
-    if np.count_nonzero(np.isnan(va)) > 0:
-        print(va)
+        if np.count_nonzero(np.isnan(va)) > 0:
+            print(va)
 
-    return va, flag/n_windows
+    except RuntimeWarning:
+        print('Warning was raised as an exception!')
+        warn_flag = 1
 
+    return va, warn_flag
 # https://scikit-learn.org/stable/modules/density.html#kernel-density-estimation
 # https://stackabuse.com/kernel-density-estimation-in-python-using-scikit-learn/
 
@@ -271,7 +277,7 @@ class nqDataset:
 
         for i, row in self.user_info.iterrows():
             print(i)
-            df_ID = self.load_record(path + row['file_1'])
+            df_ID = nqDataset.load_record(path + row['file_1'])
             df_ID = filter_record(df_ID, key_filter=True)
 
             if feature_extract == 1:
