@@ -3,12 +3,16 @@ import pandas as pd
 import re
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.neighbors import KernelDensity
+from sklearn.neighbors import KernelDensity, KNeighborsClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from dateutil import parser as date_parser
 from datetime import datetime
 import warnings
+
 
 def is_date_parsing(date_str):
     try:
@@ -124,11 +128,11 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
     typical_number = 0
     flag = 0
-    
+
     data = data_orig.copy()
 
     warn_flag = 0
-    warnings.filterwarnings('error')
+    warnings.simplefilter('error', RuntimeWarning)
 
     # fig, axs = plt.subplots(figsize=[4, 3])
 
@@ -202,14 +206,17 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         tmpL = data[data['Hand'] == 'L']
         tmpR = data[data['Hand'] == 'R']
         va[10] = abs(tmpL[dynamic_feature].mean() -
-                    tmpR[dynamic_feature].mean())  # abs or not - ?
+                     tmpR[dynamic_feature].mean())  # abs or not - ?
 
-        print('Flag / [% of all]: ', flag, '  ', flag/n_windows)
+        print('Flag / n_windows: ', flag, ' / ', n_windows)
+        if n_windows - flag < 100:
+            warn_flag = 1
+
         # print('All windows: ', n_windows)
         # print('Typical number of keys: ', typical_number)
 
-        if np.count_nonzero(np.isnan(va)) > 0:
-            print(va)
+        # if np.count_nonzero(np.isnan(va)) > 0:
+        #     print(va)
 
     except RuntimeWarning:
         print('Warning was raised as an exception!')
@@ -218,6 +225,36 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
     return va, warn_flag
 # https://scikit-learn.org/stable/modules/density.html#kernel-density-estimation
 # https://stackabuse.com/kernel-density-estimation-in-python-using-scikit-learn/
+
+
+def train_SVM_model(x, y):
+
+    clf = make_pipeline(StandardScaler(), SVC(gamma='auto'))
+    clf.fit(x, y)
+    # clf.fit(data1.trainset, data1.train_ground_truth)
+    return clf
+
+
+def test_SVM_model(x_test, y_test, model):
+    # predictions = clf.predict(data1.testset)
+    predictions = model.predict(x_test)
+    print(accuracy_score(y_test, predictions))
+    print(classification_report(y_test, predictions))
+
+
+def train_kNN_model(x, y):
+
+    clf = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=3))
+    clf.fit(x, y)
+    # clf.fit(data1.trainset, data1.train_ground_truth)
+    return clf
+
+
+def test_kNN_model(x_test, y_test, model):
+    # predictions = clf.predict(data1.testset)
+    predictions = model.predict(x_test)
+    print(accuracy_score(y_test, predictions))
+    print(classification_report(y_test, predictions))
 
 
 class nqDataset:
@@ -295,6 +332,6 @@ class nqDataset:
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
 
-        # shuffle + random_state
+        # TO DO: shuffle + random_state needs correction
         self.trainset, self.testset, self.train_ground_truth, self.test_ground_truth = train_test_split(
             self.features, self.user_info['Parkinsons'].to_numpy(), test_size=0.3, shuffle=True, random_state=42)
