@@ -4,11 +4,14 @@ import re
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity, KNeighborsClassifier
-from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import GridSearchCV, train_test_split, KFold
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from imblearn.over_sampling import RandomOverSampler
+from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
 from datetime import datetime
 import warnings
@@ -29,7 +32,7 @@ def count_time_from_0(df):
     time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
     return time_diff.cumsum()
 
-
+# sztuczne powiększenie zbioru nqDataset
 def assign_cols(df):
     cond = df['file_2'].apply(lambda x: isinstance(x, float))
 
@@ -79,6 +82,16 @@ def which_hand(key):
         return 'R'
     else:
         return 'N'
+
+
+def sampling_imbalanced_data(X, y, opt='under'):
+    if str(opt) == 'under':
+        rus = RandomUnderSampler(random_state=None)
+        X_resampl, y_resampl = rus.fit_resample(X, y)
+    else:
+        ros = RandomOverSampler(random_state=None)
+        X_resampl, y_resampl = ros.fit_resample(X, y)
+    return X_resampl, y_resampl
 
 
 def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
@@ -208,8 +221,8 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         va[10] = abs(tmpL[dynamic_feature].mean() -
                      tmpR[dynamic_feature].mean())  # abs or not - ?
 
-        print('Flag / n_windows: ', flag, ' / ', n_windows)
-        if n_windows - flag < 100:
+        # print('Flag / n_windows: ', flag, ' / ', n_windows)
+        if n_windows - flag < int(assumed_length/window_time):  # 24
             warn_flag = 1
 
         # print('All windows: ', n_windows)
@@ -227,6 +240,43 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 # https://stackabuse.com/kernel-density-estimation-in-python-using-scikit-learn/
 
 
+def search_params(X, Y, model, param_grid):
+    # param_grid = {'C': [0.1,1, 10, 100], 'gamma': [1,0.1,0.01,0.001],'kernel': ['rbf', 'poly', 'sigmoid']}
+    # grid = GridSearchCV(SVC(),param_grid,refit=True,verbose=2)
+    grid = GridSearchCV(model, param_grid, refit=True, verbose=2)
+    grid.fit(X, Y)
+    print(grid.best_estimator_)
+
+
+def cross_validation(X, Y, train_func, n_splits=5):
+    # TO DO: shuffle + random_state = None
+    # https://medium.com/mlearning-ai/what-the-heck-is-random-state-24a7a8389f3d
+    k_folds = KFold(n_splits=n_splits, shuffle=True)
+    acc_scores = []
+
+    for k, (train, test) in enumerate(k_folds.split(X)):
+        print('Number of fold: ', k+1)
+
+        # shuffle again
+        np.random.shuffle(train)
+        np.random.shuffle(test)
+
+        X_train = X[train, :]
+        Y_train = Y[train]
+        X_test = X[test, :]
+        Y_test = Y[test]
+
+        model = train_func(X_train, Y_train)
+        predictions, acc_val, rep = test_selected_model(X_test, Y_test, model)
+        acc_scores.append(acc_val)
+        print(rep)
+
+    acc_scores = [round(elem, 2) for elem in acc_scores]
+    print("Cross Validation Accuracy Scores: ", acc_scores)
+    print("Average CV Score: ", np.mean(acc_scores))
+
+
+# check different kernels
 def train_SVM_model(x, y):
 
     clf = make_pipeline(StandardScaler(), SVC(gamma='auto'))
@@ -235,26 +285,31 @@ def train_SVM_model(x, y):
     return clf
 
 
-def test_SVM_model(x_test, y_test, model):
-    # predictions = clf.predict(data1.testset)
-    predictions = model.predict(x_test)
-    print(accuracy_score(y_test, predictions))
-    print(classification_report(y_test, predictions))
+def train_kNN_model(x, y, n_n=3):
 
-
-def train_kNN_model(x, y):
-
-    clf = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=3))
+    clf = make_pipeline(
+        StandardScaler(), KNeighborsClassifier(n_neighbors=n_n))
     clf.fit(x, y)
-    # clf.fit(data1.trainset, data1.train_ground_truth)
     return clf
 
 
-def test_kNN_model(x_test, y_test, model):
+# https://stackoverflow.com/questions/35363530/python-scikit-learn-mlpclassifier-hidden-layer-sizes
+def train_MLP_model(x, y, lr=0.01, max_it=500):
+
+    clf = make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(
+        x.shape[0]-1, int(x.shape[0]/2), 3, ), activation='relu', solver='adam',
+        batch_size='auto', learning_rate='adaptive', learning_rate_init=lr,
+        random_state=2, max_iter=max_it))
+    clf.fit(x, y)
+    return clf
+
+
+def test_selected_model(x_test, Y_test, model):
     # predictions = clf.predict(data1.testset)
     predictions = model.predict(x_test)
-    print(accuracy_score(y_test, predictions))
-    print(classification_report(y_test, predictions))
+    acc_val = accuracy_score(Y_test, predictions)
+    rep = classification_report(Y_test, predictions, output_dict=True)
+    return predictions, acc_val, rep
 
 
 class nqDataset:
@@ -278,6 +333,7 @@ class nqDataset:
         self.train_ground_truth = None
         self.test_ground_truth = None
         self.features = None
+        self.ground_truth = self.user_info['Parkinsons'].to_numpy()
 
     def show_stats(self):
         print('Patients with PD: ', len(
@@ -331,7 +387,3 @@ class nqDataset:
 
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
-
-        # TO DO: shuffle + random_state needs correction
-        self.trainset, self.testset, self.train_ground_truth, self.test_ground_truth = train_test_split(
-            self.features, self.user_info['Parkinsons'].to_numpy(), test_size=0.3, shuffle=True, random_state=42)
