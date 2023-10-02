@@ -15,6 +15,11 @@ from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
 from datetime import datetime
 import warnings
+from torch.utils.data import DataLoader, TensorDataset
+from torch import cuda
+from torch import Tensor
+from myMLP import MLP
+import pytorch_lightning as pl
 
 
 def is_date_parsing(date_str):
@@ -83,6 +88,14 @@ def which_hand(key):
     else:
         return 'N'
 
+def check_assymetry(data, dynamic_feature):
+    # mean diff between L and R
+    tmpL = data[data['Hand'] == 'L']
+    tmpR = data[data['Hand'] == 'R']
+    var = abs(tmpL[dynamic_feature].mean() -
+                    tmpR[dynamic_feature].mean())  # abs or not - ?
+    return var
+
 
 def sampling_imbalanced_data(X, y, opt='under'):
     if str(opt) == 'under':
@@ -96,7 +109,8 @@ def sampling_imbalanced_data(X, y, opt='under'):
 
 def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
 
-    n_features = 6
+    n_features = 6  # 7
+
     # number of non-overlapping windows
     n_windows = int(assumed_length/window_time)
     va = np.zeros([n_windows, n_features])
@@ -121,6 +135,8 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
         vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
 
         va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
+
+        # va[7] = check_assymetry(data, dynamic_feature)
 
     return np.nanmean(va, axis=0)
 
@@ -215,11 +231,7 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         va[9] = np.std(upper_triangle, ddof=1)
         va[10] = np.sum(upper_triangle)
 
-        # mean diff between L and R
-        tmpL = data[data['Hand'] == 'L']
-        tmpR = data[data['Hand'] == 'R']
-        va[10] = abs(tmpL[dynamic_feature].mean() -
-                     tmpR[dynamic_feature].mean())  # abs or not - ?
+        # va[10] = check_assymetry(data, dynamic_feature)
 
         # print('Flag / n_windows: ', flag, ' / ', n_windows)
         if n_windows - flag < int(assumed_length/window_time):  # 24
@@ -312,6 +324,32 @@ def test_selected_model(x_test, Y_test, model):
     return predictions, acc_val, rep
 
 
+# def train_architecture(X,Y, seed=42, max_epoch_train = 50):
+
+    training_data = TensorDataset(Tensor(X), Tensor(Y))
+    train_dataloader = DataLoader(training_data, shuffle=True)
+
+    pl.seed_everything(seed)
+    mlp = MLP()
+    if cuda.is_available():
+        trainer = pl.Trainer(accelerator='gpu', devices=1,
+                                auto_select_gpus=True, max_epochs=max_epoch_train)
+    else:
+        # trainer = pl.Trainer(auto_scale_batch_size='power',
+        #                         deterministic=True, max_epochs=max_epoch_train)
+        trainer = pl.Trainer(max_epochs=max_epoch_train)
+
+    trainer.fit(mlp, train_dataloader)
+    return trainer
+
+
+def test_architecture(model, X,Y, seed=42, max_epoch_train = 50):
+
+    test_data = TensorDataset(Tensor(X), Tensor(Y))
+    test_dataloader = DataLoader(test_data, shuffle=True)
+    model.test(dataloaders=test_dataloader)
+
+
 class nqDataset:
     def __init__(self, filename1, filename2):
 
@@ -327,11 +365,6 @@ class nqDataset:
 
         # self.user_info = df_conc
         self.user_info = assign_cols(df_conc)
-
-        self.trainset = None
-        self.testset = None
-        self.train_ground_truth = None
-        self.test_ground_truth = None
         self.features = None
         self.ground_truth = self.user_info['Parkinsons'].to_numpy()
 
@@ -361,7 +394,7 @@ class nqDataset:
         if feature_extract == 2:
             n_features = 22
         else:
-            n_features = 6
+            n_features = 6  # *2
 
         self.features = np.zeros([len(self.user_info), n_features])
 
@@ -379,7 +412,7 @@ class nqDataset:
                 self.features[i, :] = va_HT
 
             if feature_extract == 2:
-                va_HT, typi = feature_extract_method_2(
+                va_HT, _ = feature_extract_method_2(
                     df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
                 va_NFT, _ = feature_extract_method_2(
                     df_ID, dynamic_feature='flightTime', time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
@@ -387,3 +420,147 @@ class nqDataset:
 
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
+
+
+class tappyDataset:
+
+    def __init__(self, path1, path2, opt=1):
+
+        # load data
+        self.files_list1 = os.listdir(path1)
+        self.files_list2 = os.listdir(path2)
+        users = [el.split("_")[1].split(".")[0] for el in self.files_list1]
+        df = pd.DataFrame(data=users, columns=['pID'])
+
+        if opt == 1:
+            with open('reports_23_08.txt', 'r') as f:
+                lsID = f.readlines()
+            lsID = '|'.join(lsID)
+            clean_lsID = lsID.replace('\n', '')
+            df.drop(df[df['pID'].str.contains(clean_lsID)].index, inplace=True)
+            df.reset_index(inplace=True)
+
+        for i, el in enumerate(df['pID']):
+            temp = [x for x in self.files_list2 if x.startswith(el)]
+            if len(temp):
+                df.loc[[i], 'files'] = pd.Series([temp], index=df.index[[i]])
+                with open(path1 + self.files_list1[i], 'r') as f:
+                    for line in f:
+                        if 'Parkinsons' in line:
+                            read_info = line.strip().split(": ")
+                            df.loc[[i], 'Parkinsons'] = read_info[1]
+
+        df.dropna(inplace=True)
+        df['Parkinsons'] = df['Parkinsons'].map({'True': 1.0, 'False': 0.0})
+
+        self.user_info = df
+
+        self.features = None
+        self.ground_truth = self.user_info['Parkinsons'].to_numpy()
+        self.flag_fatal = []
+
+    def show_stats(self):
+        print('Patients with PD: ', len(
+            self.user_info[self.user_info['Parkinsons'] == 1.0]))
+        print('Patients without PD: ', len(
+            self.user_info[self.user_info['Parkinsons'] == 0.0]))
+        plt.figure(figsize=[4, 3])
+        sns.countplot(x='Parkinsons', data=self.user_info)
+        plt.xlabel('Parkinson\'s disease')
+
+    # TO DO:
+    @staticmethod
+    def load_record(filename):
+        df = pd.read_csv(filename, delimiter="\t", index_col=False, header=None, names=[
+                         'User', 'Date', 'Timestamp', 'Hand', 'holdTime', 'Direction', 'flightTime', 'latencyTime'])
+
+        df.drop(columns=['User'], inplace=True)
+        df.drop(columns=['Direction'], inplace=True)
+
+        df[df.columns[-3:]] = df[df.columns[-3:]
+                                 ].apply(lambda x: x.lstrip('0') if type(x) == str else x)
+        df[df.columns[-3:]
+           ] = pd.to_numeric(df[df.columns[-3:]].stack(), errors='coerce').unstack()
+        df[df.columns[-3:]] = df[df.columns[-3:]].apply(lambda x: x/1000)
+
+        grouped_data = df.groupby('Date').agg(list)
+        grouped_data['Length'] = grouped_data['Timestamp'].apply(len)
+
+        idx = grouped_data['Length'].idxmax()
+
+        ex_rec2 = df[df['Date'] == idx].copy()
+        temp = ex_rec2['Timestamp'].apply(lambda x: is_date_parsing(x))
+        ex_rec2.drop(ex_rec2[temp == False].index, inplace=True)
+
+        ex_rec2.reset_index(inplace=True)
+        ex_rec2['Timestamp'] = ex_rec2['Timestamp'].apply(
+            lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
+        ex_rec2['timeLapse'] = count_time_from_0(ex_rec2)
+
+        indices_nan = np.where(ex_rec2['timeLapse'].isna())
+        if len(indices_nan[0]) > 1:
+            print('Nans:', indices_nan)
+
+        return ex_rec2
+
+    def loc_prep(self, filename, feature_extract=2):
+        df_ID = tappyDataset.load_record(filename)
+        df_ID = filter_record(df_ID, key_filter=False)
+        if feature_extract == 2:
+            va_HT, warn_flag = feature_extract_method_2(
+                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=20)
+            va_NFT, warn_flag = feature_extract_method_2(
+                df_ID, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=360, window_time=20, normalize_option=True)
+        return va_HT, va_NFT, warn_flag
+
+    def prepare_dataset(self, path, feature_extract=2):
+
+        if feature_extract == 2:
+            n_features = 22
+        else:
+            n_features = 6
+
+        self.features = np.zeros([len(self.user_info), n_features])
+
+        for i, row in self.user_info.reset_index(inplace=False).iterrows():
+            # for i, row in self.user_info.iterrows():
+            # for i, row in self.train_df.reset_index(inplace=False).iterrows():
+            # .iloc[45:]
+            # DO NOT iterate: https://stackoverflow.com/questions/16476924/how-to-iterate-over-rows-in-a-dataframe-in-pandas
+            # use .apply() instead
+
+            # control
+            print(i)
+            filename = path + row['files'][0]
+
+            if feature_extract == 1:
+                va_HT, _, warn_flag = self.loc_prep(
+                    filename, feature_extract=1)
+                self.features[i, :] = va_HT
+
+            if feature_extract == 2:
+                
+                va_HT, va_NFT, warn_flag = self.loc_prep(
+                    filename, feature_extract=2)
+                self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
+
+            if warn_flag == 1:
+                if len(row['files']) > 1:
+                    print('Another file was found!')
+                    filename = path + row['files'][1]
+                    va_HT, va_NFT, warn_flag = self.loc_prep(
+                        filename, feature_extract=2)
+                    self.features[i, :] = np.concatenate(
+                        [va_HT, va_NFT], axis=0)
+                else:
+                    print(
+                        'Only 1 file is available! - record not useful, with gt: ', row['Parkinsons'])
+                    self.flag_fatal.append(i)
+                    with open('reports_02_10.txt', 'a') as log_file:
+                        log_file.writelines(row['pID'] + '\n')
+
+        X_resampl, y_resampl = sampling_imbalanced_data(
+            self.features, self.user_info['Parkinsons'].to_numpy(), opt='under')
+
+        # print('flag_fatal: ', self.flag_fatal)
+        print('     SUCCESS!!!')
