@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import re
@@ -199,8 +200,7 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         # PDF estimation via KDE
         X = df_temp[time_feature].to_numpy().reshape(-1, 1)
 
-        # bandwidth = np.arange(0.05, 2, .1)
-        bandwidth = np.array([0.05, 0.85, 1.00, 1.45, 1.75, 1.95])
+        bandwidth = np.array([0.85, 1.00, 1.45, 1.75, 1.95])
         kde = KernelDensity(kernel='gaussian')
         grid = GridSearchCV(kde, {'bandwidth': bandwidth})
         grid.fit(X)
@@ -242,6 +242,9 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
         # if np.count_nonzero(np.isnan(va)) > 0:
         #     print(va)
+
+        with open('bandwidth_06_10.txt', 'a') as log_file:
+            log_file.writelines(str(np.round(kde.bandwidth,2)) + '\n')
 
     except RuntimeWarning:
         print('Warning was raised as an exception!')
@@ -293,7 +296,6 @@ def train_SVM_model(x, y):
 
     clf = make_pipeline(StandardScaler(), SVC(gamma='auto'))
     clf.fit(x, y)
-    # clf.fit(data1.trainset, data1.train_ground_truth)
     return clf
 
 
@@ -317,14 +319,13 @@ def train_MLP_model(x, y, lr=0.01, max_it=500):
 
 
 def test_selected_model(x_test, Y_test, model):
-    # predictions = clf.predict(data1.testset)
     predictions = model.predict(x_test)
     acc_val = accuracy_score(Y_test, predictions)
     rep = classification_report(Y_test, predictions, output_dict=True)
     return predictions, acc_val, rep
 
 
-# def train_architecture(X,Y, seed=42, max_epoch_train = 50):
+def train_architecture(X,Y, seed=42, max_epoch_train = 50):
 
     training_data = TensorDataset(Tensor(X), Tensor(Y))
     train_dataloader = DataLoader(training_data, shuffle=True)
@@ -420,7 +421,7 @@ class nqDataset:
 
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
-
+    
 
 class tappyDataset:
 
@@ -483,35 +484,44 @@ class tappyDataset:
            ] = pd.to_numeric(df[df.columns[-3:]].stack(), errors='coerce').unstack()
         df[df.columns[-3:]] = df[df.columns[-3:]].apply(lambda x: x/1000)
 
+        return df
+    
+    @staticmethod
+    def grouping_date(df):
         grouped_data = df.groupby('Date').agg(list)
         grouped_data['Length'] = grouped_data['Timestamp'].apply(len)
 
         idx = grouped_data['Length'].idxmax()
+        ex_rec = df[df['Date'] == idx].copy()
+        temp = ex_rec['Timestamp'].apply(lambda x: is_date_parsing(x))
+        ex_rec.drop(ex_rec[temp == False].index, inplace=True)
 
-        ex_rec2 = df[df['Date'] == idx].copy()
-        temp = ex_rec2['Timestamp'].apply(lambda x: is_date_parsing(x))
-        ex_rec2.drop(ex_rec2[temp == False].index, inplace=True)
-
-        ex_rec2.reset_index(inplace=True)
-        ex_rec2['Timestamp'] = ex_rec2['Timestamp'].apply(
+        ex_rec.reset_index(inplace=True)
+        ex_rec['Timestamp'] = ex_rec['Timestamp'].apply(
             lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
-        ex_rec2['timeLapse'] = count_time_from_0(ex_rec2)
+        ex_rec['timeLapse'] = count_time_from_0(ex_rec)
 
-        indices_nan = np.where(ex_rec2['timeLapse'].isna())
-        if len(indices_nan[0]) > 1:
-            print('Nans:', indices_nan)
+        # indices_nan = np.where(ex_rec['timeLapse'].isna())
+        # if len(indices_nan[0]) > 1:
+        #     print('Nans:', indices_nan)
 
-        return ex_rec2
+        return ex_rec
+    
+    def loc_prep(self, i, df_ID, feature_extract):
 
-    def loc_prep(self, filename, feature_extract=2):
-        df_ID = tappyDataset.load_record(filename)
-        df_ID = filter_record(df_ID, key_filter=False)
+        if feature_extract == 1:
+            va_HT, warn_flag = feature_extract_method_1(
+                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=90)
+            self.features[i, :] = va_HT
+
         if feature_extract == 2:
             va_HT, warn_flag = feature_extract_method_2(
-                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=20)
+                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=15)
             va_NFT, warn_flag = feature_extract_method_2(
-                df_ID, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=360, window_time=20, normalize_option=True)
-        return va_HT, va_NFT, warn_flag
+                df_ID, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=360, window_time=15, normalize_option=True)
+            self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
+
+        return warn_flag
 
     def prepare_dataset(self, path, feature_extract=2):
 
@@ -530,37 +540,37 @@ class tappyDataset:
             # use .apply() instead
 
             # control
-            print(i)
-            filename = path + row['files'][0]
+            print('\nIndex: ',i)
+            counter = 0  
 
-            if feature_extract == 1:
-                va_HT, _, warn_flag = self.loc_prep(
-                    filename, feature_extract=1)
-                self.features[i, :] = va_HT
+            print('L: ', len(row['files']))
+            while counter < len(row['files']):
 
-            if feature_extract == 2:
-                
-                va_HT, va_NFT, warn_flag = self.loc_prep(
-                    filename, feature_extract=2)
-                self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
+                filename = path + row['files'][counter]
+                df_ID_all = tappyDataset.load_record(filename)
+                df_ID = tappyDataset.grouping_date(df_ID_all)
+                df_ID = filter_record(df_ID, key_filter=False)
+                warn_flag = self.loc_prep(i, df_ID, feature_extract)
 
-            if warn_flag == 1:
-                if len(row['files']) > 1:
-                    print('Another file was found!')
-                    filename = path + row['files'][1]
-                    va_HT, va_NFT, warn_flag = self.loc_prep(
-                        filename, feature_extract=2)
-                    self.features[i, :] = np.concatenate(
-                        [va_HT, va_NFT], axis=0)
-                else:
-                    print(
-                        'Only 1 file is available! - record not useful, with gt: ', row['Parkinsons'])
+                if warn_flag == 0:
+                    print('used')
+                    break
+
+                if warn_flag == 1 and counter == len(row['files']) - 1:
+
+                    print('Record not useful, with gt: ', row['Parkinsons'])
+                    print('Counter: ', counter)
                     self.flag_fatal.append(i)
-                    with open('reports_02_10.txt', 'a') as log_file:
+                    with open('reports_06_10.txt', 'a') as log_file:
                         log_file.writelines(row['pID'] + '\n')
 
-        X_resampl, y_resampl = sampling_imbalanced_data(
-            self.features, self.user_info['Parkinsons'].to_numpy(), opt='under')
+                counter += 1
+
+        print('     SUCCESS!!!')
+
+        # # TO DO: do przeniesienia
+        # X_resampl, y_resampl = sampling_imbalanced_data(
+        #     self.features, self.user_info['Parkinsons'].to_numpy(), opt='under')
 
         # print('flag_fatal: ', self.flag_fatal)
-        print('     SUCCESS!!!')
+        
