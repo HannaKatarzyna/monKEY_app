@@ -9,6 +9,7 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+from custom_widgets import MyQTextEdit
 
 
 class Ui_Dialog(object):
@@ -20,7 +21,8 @@ class Ui_Dialog(object):
         self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
         self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel|QtWidgets.QDialogButtonBox.Ok)
         self.buttonBox.setObjectName("buttonBox")
-        self.textRecord = QtWidgets.QTextEdit(Dialog)
+        # self.textRecord = QtWidgets.QTextEdit(Dialog)
+        self.textRecord = MyQTextEdit(Dialog)
         self.textRecord.setGeometry(QtCore.QRect(50, 80, 481, 321))
         self.textRecord.setObjectName("textRecord")
         self.startButton = QtWidgets.QPushButton(Dialog)

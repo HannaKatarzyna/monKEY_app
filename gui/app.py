@@ -14,39 +14,14 @@ class Window(QMainWindow, Ui_Dialog):
         super().__init__(parent)
         self.setupUi(self)
         self.connectSignalsSlots()
-        self.flag = 0
-
-    def keyPressEvent(self, event):
-        pressed = event.key()
-        print(pressed)
-        # if (pressed in self.keys):
-        #     index = self.keys.index(pressed)
-        #     self.dots[index] = self.height()+self.upper
-        #     self.repaint()
-        if self.flag == 1:
-            with open('exam_09_10.txt', 'a') as rec_file:
-                rec_file.writelines()
-        event.accept()
-
-    def keyReleaseEvent(self, event):
-        pressed = event.key()
-        print(pressed)
-        # if (pressed in self.keys):
-        #     index = self.keys.index(pressed)
-        #     self.dots[index] = self.lower
-        #     self.repaint()
-        if self.flag == 1:
-            with open('reports_06_10.txt', 'a') as rec_file:
-                rec_file.writelines()
-        event.accept()
 
     def startRecording(self):
         print('The START button has been clicked')
-        self.flag = 1
+        self.textRecord.flag = True
 
     def stopRecording(self):
         print('The STOP button has been clicked')
-        self.flag = 0
+        self.textRecord.flag = False
 
 # https://stackoverflow.com/questions/14159318/pyqt4-holding-down-a-key-detected-as-frequent-press-and-release
 # https://stackoverflow.com/questions/49022442/pyqt-equivalent-of-keydown-event
