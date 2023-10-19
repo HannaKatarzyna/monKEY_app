@@ -1,6 +1,30 @@
 # MasterDiploma
 
-
+Create virtual env:
+```
+py -m venv ./project_venv
+```
+Activate your env:
+```
+project_venv\Scripts\activate.bat 
+```
+Packages:
+```
+pip freeze > requirements.txt 
+```
+Run designer:
+```
+qt5-tools designer
+```
+Generate PyQt5 UI code:
+```
+pyuic5 -x myApp.ui -o main_window_ui.py
+```
+Custom widgets:
+```
+from custom_widgets import MyQTextEdit
+# self.textRecord = MyQTextEdit(Dialog)
+```
 
 ## Getting started
 
