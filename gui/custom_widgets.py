@@ -16,8 +16,8 @@ class MyQTextEdit(QtWidgets.QTextEdit):
         # pressed = eventQKeyEvent.key()
         # print('pressed:  ', pressed)
         if self.flag:
-            with open('exam_press.txt', 'a') as p_file:
-                p_file.writelines(str(ts)+'\n')
+            with open('exam.txt', 'a') as p_file:
+                p_file.writelines(ts+' ')
 
     def keyReleaseEvent(self, eventQKeyEvent):
         super().keyReleaseEvent(eventQKeyEvent)
@@ -25,5 +25,5 @@ class MyQTextEdit(QtWidgets.QTextEdit):
         # released = eventQKeyEvent.key()
         # print('released:  ', released)
         if self.flag and not eventQKeyEvent.isAutoRepeat():
-            with open('exam_release.txt', 'a') as r_file:
-                r_file.writelines(str(ts)+'\n')
+            with open('exam.txt', 'a') as r_file:
+                r_file.writelines(ts+'\n')
