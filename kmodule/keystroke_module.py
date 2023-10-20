@@ -16,6 +16,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
 from datetime import datetime
 import warnings
+import pickle
 from torch.utils.data import DataLoader, TensorDataset
 from torch import cuda
 from torch import Tensor
@@ -31,8 +32,8 @@ def is_date_parsing(date_str):
 
 
 def count_time_from_0(df):
-    s1 = pd.Series(df['Timestamp'].iloc[1:]).reset_index()
-    s2 = pd.Series(df['Timestamp'].iloc[:-1]).reset_index()
+    s1 = pd.Series(df['Timestamp'].iloc[1:]).reset_index(drop=True)
+    s2 = pd.Series(df['Timestamp'].iloc[:-1]).reset_index(drop=True)
     time_diff = (s1['Timestamp'] - s2['Timestamp']
                  ).apply(lambda x: x.total_seconds())
     time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
@@ -263,7 +264,7 @@ def search_params(X, Y, model, param_grid):
     print(grid.best_estimator_)
 
 
-def cross_validation(X, Y, train_func, n_splits=5):
+def cross_validation(X, Y, train_func, n_splits=5, save_opt=0):
     # TO DO: shuffle + random_state = None
     # https://medium.com/mlearning-ai/what-the-heck-is-random-state-24a7a8389f3d
     k_folds = KFold(n_splits=n_splits, shuffle=True)
@@ -285,6 +286,10 @@ def cross_validation(X, Y, train_func, n_splits=5):
         predictions, acc_val, rep = test_selected_model(X_test, Y_test, model)
         acc_scores.append(acc_val)
         print(rep)
+
+        if save_opt:
+            with open('model_'+ str(k+1)+ '.pkl', 'wb') as file:  
+                pickle.dump(model, file)
 
     acc_scores = [round(elem, 2) for elem in acc_scores]
     print("Cross Validation Accuracy Scores: ", acc_scores)
