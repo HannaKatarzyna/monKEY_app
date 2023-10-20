@@ -5,25 +5,28 @@ from datetime import datetime
 class MyQTextEdit(QtWidgets.QTextEdit):
 
     flag: bool
+    current_keys: dict
 
     def __init__(self, UI):
         super().__init__(UI)
         self.flag = False
+        self.current_keys = {}
 
     def keyPressEvent(self, eventQKeyEvent): 
         super().keyPressEvent(eventQKeyEvent)
-        ts = datetime.now().strftime('%H:%M:%S.%f')
-        # pressed = eventQKeyEvent.key()
-        # print('pressed:  ', pressed)
         if self.flag:
-            with open('exam.txt', 'a') as p_file:
-                p_file.writelines(ts+' ')
+            ts = datetime.now().strftime('%H:%M:%S.%f')
+            pressed = eventQKeyEvent.key()
+            self.current_keys[pressed] = ts
+            print(self.current_keys)
 
     def keyReleaseEvent(self, eventQKeyEvent):
         super().keyReleaseEvent(eventQKeyEvent)
-        ts = datetime.now().strftime('%H:%M:%S.%f')
-        # released = eventQKeyEvent.key()
-        # print('released:  ', released)
-        if self.flag and not eventQKeyEvent.isAutoRepeat():
-            with open('exam.txt', 'a') as r_file:
-                r_file.writelines(ts+'\n')
+        if self.flag:
+            ts = datetime.now().strftime('%H:%M:%S.%f')
+            released = eventQKeyEvent.key()
+            if released in self.current_keys and not eventQKeyEvent.isAutoRepeat():
+                with open('exam.txt', 'a') as file:
+                    file.writelines(self.current_keys[released]+' '+ts+'\n')
+                del self.current_keys[released]
+                print(self.current_keys)

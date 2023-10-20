@@ -1,14 +1,17 @@
 import sys
+sys.path.append('../')
 import pandas as pd
 from datetime import datetime
-
+import pickle
 from PyQt5.QtWidgets import (
-    QApplication, QDialog, QMainWindow, QMessageBox
+    QApplication, QWidget, QDialog, QMainWindow, QMessageBox
 )
-from PyQt5.QtWidgets import *
-from PyQt5.uic import loadUi
+
+from kmodule.keystroke_module import feature_extract_method_1
 from main_window_ui import Ui_Dialog
 from loginForm_ui import Ui_MainWindow
+from PyQt5.uic import loadUi
+
 
 def count_time_from_0(df):
     s1 = pd.Series(df.iloc[1:]).reset_index(drop=True)
@@ -18,7 +21,7 @@ def count_time_from_0(df):
     return time_diff.cumsum()
 
 
-class Window(QMainWindow, Ui_Dialog):
+class Window(QWidget, Ui_Dialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,22 +46,28 @@ class Window(QMainWindow, Ui_Dialog):
 
         df_p = df_p.iloc[1:].reset_index(drop=True)
         df_r = df_r.iloc[:-1].reset_index(drop=True)
-        df['flightTime'] = pd.concat([pd.Series(0.0), (df_p-df_r).apply(lambda x: x.total_seconds())], ignore_index=True)
+        df['flightTime'] = pd.concat([pd.Series(
+            0.0), (df_p-df_r).apply(lambda x: x.total_seconds())], ignore_index=True)
         df['latencyTime'] = df['flightTime'] + \
             pd.concat([pd.Series(0.0), df['holdTime']], ignore_index=True)
-        
 
         print(df.head())
+        va_HT = feature_extract_method_1(
+                    df, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=180, window_time=90)
+
+        # load model from pickle file
+        with open('model_2.pkl', 'rb') as file:  
+            model = pickle.load(file)
+
+        # evaluate model 
+        Y = model.predict(va_HT.reshape((1, -1)))
+        print("Result: ", Y)
 
 
-# https://stackoverflow.com/questions/14159318/pyqt4-holding-down-a-key-detected-as-frequent-press-and-release
-# https://stackoverflow.com/questions/49022442/pyqt-equivalent-of-keydown-event
     def connectSignalsSlots(self):
         self.startButton.clicked.connect(self.startRecording)
         self.stopButton.clicked.connect(self.stopRecording)
-        # self.action_Exit.triggered.connect(self.close)
-        # self.action_Find_Replace.triggered.connect(self.findAndReplace)
-        # self.action_About.triggered.connect(self.about)
+        # self.logoutButton.clicked.connect(self.close)
 
     def about(self):
 
@@ -92,7 +101,6 @@ class initWindow(QMainWindow, Ui_MainWindow):
         self.hide()
         self.win = Window()
         self.win.show()
-        
 
     def connectSignalsSlots(self):
         self.loginButton.clicked.connect(self.switchWindows)
