@@ -3,6 +3,8 @@
 Create virtual env:
 ```
 py -m venv ./project_venv
+or
+python -m venv pro-env
 ```
 Activate your env:
 ```
@@ -11,6 +13,8 @@ project_venv\Scripts\activate.bat
 Packages:
 ```
 pip freeze > requirements.txt 
+or
+pip install -r .\requirements.txt  
 ```
 Run designer:
 ```
@@ -18,12 +22,22 @@ qt5-tools designer
 ```
 Generate PyQt5 UI code:
 ```
-pyuic5 -x myApp.ui -o main_window_ui.py
+pyuic5 -x loginForm.ui -o loginForm_ui.py
 ```
 Custom widgets:
 ```
 from custom_widgets import MyQTextEdit
 # self.textRecord = MyQTextEdit(Dialog)
+```
+
+Create database in cmd:
+```
+sqlite3 DatabaseMonKEY.db
+sqlite3 DatabaseMonKEY.db < insert_data.sql
+```
+In sqlite:
+```
+.tables
 ```
 
 ## Getting started
