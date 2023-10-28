@@ -2,9 +2,12 @@ import sys
 sys.path.append('../')
 import pickle
 from datetime import datetime
+from time import strftime
 import pandas as pd
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from PyQt5.QtMultimedia import QSound
+from PyQt5 import QtCore
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QDialog, QMainWindow, QMessageBox
@@ -27,18 +30,38 @@ class Window(QWidget, Ui_Dialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
+        self.resultLabel.hide()
+        self.lcdNumber.display("00:00")
+        self.sound_file = QSound("ImperialMarch60.wav")
+        self.timestamp = None
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.timeUp)
         self.connectSignalsSlots()
+        
+    def timeUp(self):
+        if self.timestamp != None:
+            ts = datetime.now() - self.timestamp
+            self.lcdNumber.display(str(ts)[2:7])
 
     def startRecording(self):
         print('The START button has been clicked')
+        self.resultLabel.hide()
+        self.textRecord.clear()
         self.textRecord.flag = True
+        self.timer.start(1000)
+        self.timestamp = datetime.now()
+        self.sound_file.play()
 
     def stopRecording(self):
         print('The STOP button has been clicked')
         self.textRecord.flag = False
+        self.timer.stop()
+        self.timestamp = None
+        self.sound_file.stop()
+        self.lcdNumber.display("00:00")
 
         df = pd.read_csv('exam.txt', delimiter=" ", index_col=False,
-                         header=None, names=['Press', 'Release'])
+                         header=None, names=['Press', 'Release', 'Hand'])
         df_p = df['Press'].apply(lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
         df_r = df['Release'].apply(
             lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
@@ -60,15 +83,20 @@ class Window(QWidget, Ui_Dialog):
         with open('model_2.pkl', 'rb') as file:
             model = pickle.load(file)
 
-        # evaluate model
         Y = model.predict(va_HT.reshape((1, -1)))
         print("Result: ", Y)
+        if Y:
+            str = "Motor functions disorder was detect. Please, contact with your doctor"
+        else:
+            str = "Any motor functions disorder was detect."
+        self.resultLabel.setText("Your result: "+str)
+        self.resultLabel.show()
+
 
     def connectSignalsSlots(self):
         self.startButton.clicked.connect(self.startRecording)
         self.stopButton.clicked.connect(self.stopRecording)
-        # self.logoutButton.clicked.connect(self.close)
-
+        
     def about(self):
 
         QMessageBox.about(
@@ -81,41 +109,52 @@ class Window(QWidget, Ui_Dialog):
         )
 
 
-# class FindReplaceDialog(QDialog):
-
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#         loadUi("ui/find_replace.ui", self)
-
 class initWindow(QMainWindow, Ui_monKEY):
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.rep_passwordEdit.hide()
-        self.rep_passwordLabel.hide()
+        self.clearing_reg()
         self.win = None
         self.con = QSqlDatabase.addDatabase('QSQLITE')
         self.con.setDatabaseName("C:\sqlite\DatabaseMonKEY.db")
         self.connectSignalsSlots()
 
     # def resizeEvent(self, event):
-    #     print("resizing is not able now")
+    #     print("resizing is not able now") -> provide by layouts
     #     # QMainWindow.resizeEvent(self, event)
 
     @staticmethod
-    def logging_failure():
+    def info_box(text):
         msg = QMessageBox()
         msg.setWindowTitle('Message')
         msg.setStyleSheet(
             "QLabel{min-width: 400px; min-height: 100px; font-size: 15px;}")
-        msg.setText("<p align='center'>Incorrect Username or Password.")
+        msg.setText(text)
         msg.exec_()
+
+    def clearing_log(self):
+        self.usernameEdit.clear()
+        self.passwordEdit.clear()
+
+    def clearing_reg(self):
+        self.rep_passwordEdit.hide()
+        self.rep_passwordLabel.hide()
+        self.rep_passwordEdit.clear()
+        self.loginButton.show()
+
+    def loggingOut(self):
+        # are you sure to logout - message box -?
+        self.win.close()
+        self.clearing_log()
+        self.show()
 
     def switchWindows(self):
         self.hide()
         self.win = Window()
         self.win.show()
+        self.win.logoutButton1.clicked.connect(self.loggingOut)
+        self.win.logoutButton2.clicked.connect(self.loggingOut)
 
     def first_check_password(self):
         out_username = self.usernameEdit.text()
@@ -130,16 +169,14 @@ class initWindow(QMainWindow, Ui_monKEY):
             query.exec(f"""SELECT password FROM users WHERE username=('{out_username}')""")
             query.first()
             if query.isNull(0):
-                print('User does not exist.')
-                self.logging_failure()
+                self.info_box("<p align='center'>User does not exist.")
             else:
                 hashed_pass = query.value(0)
                 try:
                     isValid = ph.verify(hashed_pass, str(out_password))
                     self.switchWindows()
                 except VerifyMismatchError:
-                    print('Password is incorrect.')
-                    self.logging_failure()
+                    self.info_box("<p align='center'>Password is incorrect.")
             self.con.close()      
 
     def user_register(self):
@@ -157,8 +194,7 @@ class initWindow(QMainWindow, Ui_monKEY):
             query_existing.exec(f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))""")
             query_existing.first()
             if query_existing.value(0):
-                print('This username exists in database.\nPlease select different name.')
-                self.logging_failure()  
+                self.info_box("<p align='center'>This username exists in database.")
             else:
                 if out_password == rep_password:
 
@@ -167,17 +203,12 @@ class initWindow(QMainWindow, Ui_monKEY):
                     query = QSqlQuery()
                     query.exec(f"""INSERT INTO users (username, password) VALUES ('{out_username}','{out_hashed}')""")
                     self.con.close()
-                    print('Success.')
-                    self.usernameEdit.clear()
-                    self.passwordEdit.clear()
-                    self.rep_passwordEdit.clear()
-                    self.rep_passwordEdit.hide()
-                    self.rep_passwordLabel.hide()
-                    self.loginButton.show()
+                    self.clearing_log()
+                    self.clearing_reg()
+                    self.info_box("<p align='center'>Successful registration.")
                         
                 else:
-                    print('Repeated password does not match.')
-                    self.logging_failure()
+                    self.info_box("<p align='center'>Repeated password does not match.")
 
     def user_preregister(self):
         if self.loginButton.isVisible():
@@ -201,6 +232,5 @@ if __name__ == "__main__":
     sys.exit(app.exec())
 
 
-# TO DO: register FORM: change layouts, 
-# TO DO: add limits for user chars number and password limits 
-# TO DO: main WINDOW GUI: time 
+# TO DO: change layouts 
+# TO DO: add limits for user char number and password limits 
