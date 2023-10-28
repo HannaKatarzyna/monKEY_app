@@ -9,7 +9,7 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-
+from custom_widgets import MyQTextEdit
 
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
