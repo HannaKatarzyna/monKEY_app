@@ -86,7 +86,7 @@ class Window(QWidget, Ui_Dialog):
         Y = model.predict(va_HT.reshape((1, -1)))
         print("Result: ", Y)
         if Y:
-            str = "Motor functions disorder was detect. Please, contact with your doctor"
+            str = "Motor functions disorder was detect. Please, contact with your doctor."
         else:
             str = "Any motor functions disorder was detect."
         self.resultLabel.setText("Your result: "+str)
@@ -117,7 +117,7 @@ class initWindow(QMainWindow, Ui_monKEY):
         self.clearing_reg()
         self.win = None
         self.con = QSqlDatabase.addDatabase('QSQLITE')
-        self.con.setDatabaseName("C:\sqlite\DatabaseMonKEY.db")
+        self.con.setDatabaseName("../database/DatabaseMonKEY.db")
         self.connectSignalsSlots()
 
     # def resizeEvent(self, event):
@@ -234,3 +234,4 @@ if __name__ == "__main__":
 
 # TO DO: change layouts 
 # TO DO: add limits for user char number and password limits 
+# REQUIREMENTS: sqlite3
