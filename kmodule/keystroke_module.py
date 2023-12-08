@@ -330,16 +330,20 @@ def test_selected_model(x_test, Y_test, model):
     return predictions, acc_val, rep
 
 
-def train_architecture(X,Y, seed=42, max_epoch_train = 50):
+def train_architecture(X, Y, seed=42, max_epoch_train = 50):
 
-    training_data = TensorDataset(Tensor(X), Tensor(Y))
+    # create scaler
+    scaler = StandardScaler()
+    # fit and transform in one step
+    X_normalized = scaler.fit_transform(X)
+
+    training_data = TensorDataset(Tensor(X_normalized), Tensor(Y))
     train_dataloader = DataLoader(training_data, shuffle=True)
 
     pl.seed_everything(seed)
     mlp = MLP()
     if cuda.is_available():
-        trainer = pl.Trainer(accelerator='gpu', devices=1,
-                                auto_select_gpus=True, max_epochs=max_epoch_train)
+        trainer = pl.Trainer(accelerator='gpu', max_epochs=max_epoch_train)
     else:
         # trainer = pl.Trainer(auto_scale_batch_size='power',
         #                         deterministic=True, max_epochs=max_epoch_train)
@@ -380,7 +384,7 @@ class nqDataset:
         print('Patients without PD: ', len(
             self.user_info[self.user_info['Parkinsons'] == 0.0]))
         plt.figure(figsize=[4, 3])
-        sns.countplot(x='Parkinsons', data=self.user_info)
+        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info, legend=False, palette=['#432371',"#FAAE7B"])
         plt.xlabel('Parkinson\'s disease')
 
     @staticmethod
@@ -471,7 +475,7 @@ class tappyDataset:
         print('Patients without PD: ', len(
             self.user_info[self.user_info['Parkinsons'] == 0.0]))
         plt.figure(figsize=[4, 3])
-        sns.countplot(x='Parkinsons', data=self.user_info)
+        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info, legend=False, palette=['#432371',"#FAAE7B"])
         plt.xlabel('Parkinson\'s disease')
 
     # TO DO:

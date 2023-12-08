@@ -79,8 +79,12 @@ class Window(QWidget, Ui_Dialog):
         va_HT = feature_extract_method_1(
             df, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=180, window_time=90)
 
-        # load model from pickle file
-        with open('model_2.pkl', 'rb') as file:
+        
+        # load model from pickle file (PyTORCH version)
+
+
+        # load model from pickle file (SKLEARN version)
+        with open('../model/model_2.pkl', 'rb') as file:
             model = pickle.load(file)
 
         Y = model.predict(va_HT.reshape((1, -1)))
@@ -91,6 +95,7 @@ class Window(QWidget, Ui_Dialog):
             str = "Any motor functions disorder was detect."
         self.resultLabel.setText("Your result: "+str)
         self.resultLabel.show()
+
 
 
     def connectSignalsSlots(self):

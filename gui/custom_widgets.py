@@ -1,4 +1,4 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore
 from PyQt5.QtWidgets import QTextEdit
 from datetime import datetime
 
@@ -18,17 +18,16 @@ def which_key(key):
         return 'N'
 
 
-class MyQTextEdit(QtWidgets.QTextEdit):
+class MyQTextEdit(QTextEdit):
 
     flag: bool
-    current_keys: dict
+    current_keys = {}
 
     # def __init__(self, UI, layout):
     #     super().__init__(UI, layout)
     def __init__(self, layout):
         super().__init__(layout)
         self.flag = False
-        self.current_keys = {}
 
     def keyPressEvent(self, eventQKeyEvent):
         super().keyPressEvent(eventQKeyEvent)
@@ -44,7 +43,7 @@ class MyQTextEdit(QtWidgets.QTextEdit):
             ts = datetime.now().strftime('%H:%M:%S.%f')
             released = eventQKeyEvent.key()
             if released in self.current_keys and not eventQKeyEvent.isAutoRepeat():
+                part_line = ' '+ts+' '+which_key(released)+'\n'
                 with open('exam.txt', 'a') as file:
-                    file.writelines(
-                        self.current_keys[released]+' '+ts+' '+which_key(released)+'\n')
+                    file.writelines(self.current_keys[released] + part_line)
                 del self.current_keys[released]

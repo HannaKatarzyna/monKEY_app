@@ -3,13 +3,13 @@ from torch import optim
 import pytorch_lightning as pl
 from torchmetrics import Accuracy
 
-number_of_features = 22
+# number_of_features = 22
 
 # softmax for multiclass
 
 class MLP(pl.LightningModule):
 
-    def __init__(self):
+    def __init__(self, number_of_features):
         super().__init__()
         input_size = number_of_features
         self.layers = nn.Sequential(
@@ -52,7 +52,7 @@ class MLP(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=1e-3) # lr=1e-4
         scheduler = optim.lr_scheduler.StepLR(
-            optimizer, step_size=10, gamma=0.5)
+            optimizer, step_size=10, gamma=0.1)
         return optimizer
         # return [optimizer], [scheduler]
 
