@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>Dialog</class>
- <widget class="QDialog" name="Dialog">
+ <class>monKEY_test</class>
+ <widget class="QDialog" name="monKEY_test">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -192,6 +192,25 @@ p, li { white-space: pre-wrap; }
        </property>
        <property name="text">
         <string>LOG OUT</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>80</y>
+         <width>781</width>
+         <height>121</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>This application was designed as part of master thesis. The aim of monKEY is to demonstrate the algorithms' performence and effect. The software should be considered as prototype of the solution. If you have any comments related to the functioning of the app,  please contact with the author.</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignJustify|Qt::AlignTop</set>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
        </property>
       </widget>
      </widget>

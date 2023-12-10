@@ -11,6 +11,7 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 from custom_widgets import MyQTextEdit
 
+
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
@@ -62,13 +63,13 @@ class Ui_Dialog(object):
         self.lcdNumber.setSizePolicy(sizePolicy)
         font = QtGui.QFont()
         font.setFamily("Rockwell")
-        font.setPointSize(15)
+        font.setPointSize(14)
         font.setBold(False)
         font.setItalic(False)
         font.setWeight(50)
         self.lcdNumber.setFont(font)
         self.lcdNumber.setAccessibleName("")
-        self.lcdNumber.setStyleSheet("font: 10pt \"Rockwell\";")
+        self.lcdNumber.setStyleSheet("font: 14pt \"Rockwell\";")
         self.lcdNumber.setSmallDecimalPoint(False)
         self.lcdNumber.setObjectName("lcdNumber")
         self.formLayout.setWidget(0, QtWidgets.QFormLayout.FieldRole, self.lcdNumber)
@@ -105,6 +106,11 @@ class Ui_Dialog(object):
         font.setPointSize(15)
         self.logoutButton2.setFont(font)
         self.logoutButton2.setObjectName("logoutButton2")
+        self.label = QtWidgets.QLabel(self.tab2)
+        self.label.setGeometry(QtCore.QRect(10, 80, 781, 121))
+        self.label.setAlignment(QtCore.Qt.AlignJustify|QtCore.Qt.AlignTop)
+        self.label.setWordWrap(True)
+        self.label.setObjectName("label")
         self.tabWidget.addTab(self.tab2, "")
         self.verticalLayout_2.addWidget(self.tabWidget)
 
@@ -114,7 +120,7 @@ class Ui_Dialog(object):
 
     def retranslateUi(self, Dialog):
         _translate = QtCore.QCoreApplication.translate
-        Dialog.setWindowTitle(_translate("Dialog", "Dialog"))
+        Dialog.setWindowTitle(_translate("Dialog", "monKEY"))
         self.textRecord.setHtml(_translate("Dialog", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
 "<html><head><meta name=\"qrichtext\" content=\"1\" /><style type=\"text/css\">\n"
 "p, li { white-space: pre-wrap; }\n"
@@ -126,6 +132,7 @@ class Ui_Dialog(object):
         self.resultLabel.setText(_translate("Dialog", "Your result:"))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab1), _translate("Dialog", "Test"))
         self.logoutButton2.setText(_translate("Dialog", "LOG OUT"))
+        self.label.setText(_translate("Dialog", "This application was designed as part of master thesis. The aim of monKEY is to demonstrate the algorithms\' performence and effect. The software should be considered as prototype of the solution. If you have any comments related to the functioning of the app,  please contact with the author."))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab2), _translate("Dialog", "About app"))
 
 

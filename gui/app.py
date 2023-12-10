@@ -1,19 +1,20 @@
-import sys
-sys.path.append('../')
-import pickle
-from datetime import datetime
-from time import strftime
-import pandas as pd
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
-from PyQt5.QtMultimedia import QSound
-from PyQt5 import QtCore
-from PyQt5.QtSql import QSqlDatabase, QSqlQuery
+from main_window_ui import Ui_Dialog
+from loginForm_ui import Ui_monKEY
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QDialog, QMainWindow, QMessageBox
 )
-from loginForm_ui import Ui_monKEY
-from main_window_ui import Ui_Dialog
+from PyQt5.QtSql import QSqlDatabase, QSqlQuery
+from PyQt5 import QtCore
+from PyQt5.QtMultimedia import QSound
+from argon2.exceptions import VerifyMismatchError
+from argon2 import PasswordHasher
+import re
+import pandas as pd
+from time import strftime
+from datetime import datetime
+import pickle
+import sys
+sys.path.append('../')
 from kmodule.keystroke_module import feature_extract_method_1
 
 
@@ -23,6 +24,28 @@ def count_time_from_0(df):
     time_diff = (s1 - s2).apply(lambda x: x.total_seconds())
     time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
     return time_diff.cumsum()
+
+
+def check_password_validity(password):
+    while True:
+        if (len(password) < 8):
+            flag = -1
+            break
+        elif not re.search("[a-z]", password):
+            flag = -1
+            break
+        elif not re.search("[A-Z]", password):
+            flag = -1
+            break
+        elif not re.search("[0-9]", password):
+            flag = -1
+            break
+        else:
+            flag = 0
+            print("Valid Password")
+            break
+    if flag == -1:
+        print("Not a Valid Password ")
 
 
 class Window(QWidget, Ui_Dialog):
@@ -37,7 +60,7 @@ class Window(QWidget, Ui_Dialog):
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.timeUp)
         self.connectSignalsSlots()
-        
+
     def timeUp(self):
         if self.timestamp != None:
             ts = datetime.now() - self.timestamp
@@ -79,39 +102,24 @@ class Window(QWidget, Ui_Dialog):
         va_HT = feature_extract_method_1(
             df, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=180, window_time=90)
 
-        
         # load model from pickle file (PyTORCH version)
 
-
         # load model from pickle file (SKLEARN version)
-        with open('../model/model_2.pkl', 'rb') as file:
+        with open('../models/model_2.pkl', 'rb') as file:
             model = pickle.load(file)
 
         Y = model.predict(va_HT.reshape((1, -1)))
         print("Result: ", Y)
         if Y:
-            str = "Motor functions disorder was detect. Please, contact with your doctor."
+            text = "Motor functions disorder was detect. Please, contact with your doctor."
         else:
-            str = "Any motor functions disorder was detect."
-        self.resultLabel.setText("Your result: "+str)
+            text = "Any motor functions disorder was detect."
+        self.resultLabel.setText("Your result: "+text)
         self.resultLabel.show()
-
-
 
     def connectSignalsSlots(self):
         self.startButton.clicked.connect(self.startRecording)
         self.stopButton.clicked.connect(self.stopRecording)
-        
-    def about(self):
-
-        QMessageBox.about(
-            self,
-            "About Sample Editor",
-            "<p>A sample text editor app built with:</p>"
-            "<p>- PyQt</p>"
-            "<p>- Qt Designer</p>"
-            "<p>- Python</p>",
-        )
 
 
 class initWindow(QMainWindow, Ui_monKEY):
@@ -161,7 +169,7 @@ class initWindow(QMainWindow, Ui_monKEY):
         self.win.logoutButton1.clicked.connect(self.loggingOut)
         self.win.logoutButton2.clicked.connect(self.loggingOut)
 
-    def first_check_password(self):
+    def user_login(self):
         out_username = self.usernameEdit.text()
         out_password = self.passwordEdit.text()
         ph = PasswordHasher()
@@ -171,7 +179,8 @@ class initWindow(QMainWindow, Ui_monKEY):
             print("database not found!")
         else:
             query = QSqlQuery()
-            query.exec(f"""SELECT password FROM users WHERE username=('{out_username}')""")
+            query.exec(
+                f"""SELECT password FROM users WHERE username=('{out_username}')""")
             query.first()
             if query.isNull(0):
                 self.info_box("<p align='center'>User does not exist.")
@@ -182,7 +191,7 @@ class initWindow(QMainWindow, Ui_monKEY):
                     self.switchWindows()
                 except VerifyMismatchError:
                     self.info_box("<p align='center'>Password is incorrect.")
-            self.con.close()      
+            self.con.close()
 
     def user_register(self):
 
@@ -196,24 +205,28 @@ class initWindow(QMainWindow, Ui_monKEY):
         else:
             query_existing = QSqlQuery()
             query_str = f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))"""
-            query_existing.exec(f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))""")
+            query_existing.exec(
+                f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))""")
             query_existing.first()
             if query_existing.value(0):
-                self.info_box("<p align='center'>This username exists in database.")
+                self.info_box(
+                    "<p align='center'>This username exists in database.")
             else:
-                if out_password == rep_password:
+                if len(out_password) >= 8 and out_password == rep_password:
 
                     ph = PasswordHasher()
                     out_hashed = ph.hash(str(out_password))
                     query = QSqlQuery()
-                    query.exec(f"""INSERT INTO users (username, password) VALUES ('{out_username}','{out_hashed}')""")
+                    query.exec(
+                        f"""INSERT INTO users (username, password) VALUES ('{out_username}','{out_hashed}')""")
                     self.con.close()
                     self.clearing_log()
                     self.clearing_reg()
                     self.info_box("<p align='center'>Successful registration.")
-                        
+
                 else:
-                    self.info_box("<p align='center'>Repeated password does not match.")
+                    self.info_box(
+                        "<p align='center'>Repeated password does not match.")
 
     def user_preregister(self):
         if self.loginButton.isVisible():
@@ -225,7 +238,7 @@ class initWindow(QMainWindow, Ui_monKEY):
             self.user_register()
 
     def connectSignalsSlots(self):
-        self.loginButton.clicked.connect(self.first_check_password)
+        self.loginButton.clicked.connect(self.user_login)
         self.registerButton.clicked.connect(self.user_preregister)
 
 
@@ -237,6 +250,6 @@ if __name__ == "__main__":
     sys.exit(app.exec())
 
 
-# TO DO: change layouts 
-# TO DO: add limits for user char number and password limits 
+# TO DO: change layouts
+# TO DO: add limits for user char number and password limits
 # REQUIREMENTS: sqlite3

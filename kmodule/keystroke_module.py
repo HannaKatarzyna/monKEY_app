@@ -20,7 +20,7 @@ import pickle
 from torch.utils.data import DataLoader, TensorDataset
 from torch import cuda
 from torch import Tensor
-from myMLP import MLP
+from kmodule.myMLP import MLP
 import pytorch_lightning as pl
 
 
