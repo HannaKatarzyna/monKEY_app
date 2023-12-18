@@ -28,6 +28,7 @@ Custom widgets:
 ```
 from custom_widgets import MyQTextEdit
 # self.textRecord = MyQTextEdit(Dialog)
+# self.textRecord = MyQTextEdit(self.verticalLayoutWidget)
 ```
 
 Create database in cmd:

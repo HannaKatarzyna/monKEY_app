@@ -1,7 +1,7 @@
 import os
+import re
 import numpy as np
 import pandas as pd
-import re
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity, KNeighborsClassifier
@@ -10,7 +10,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split, KFold
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.svm import SVC
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
@@ -34,17 +34,17 @@ def is_date_parsing(date_str):
 def count_time_from_0(df):
     s1 = pd.Series(df['Timestamp'].iloc[1:]).reset_index(drop=True)
     s2 = pd.Series(df['Timestamp'].iloc[:-1]).reset_index(drop=True)
-    time_diff = (s1['Timestamp'] - s2['Timestamp']
-                 ).apply(lambda x: x.total_seconds())
+    time_diff = (s1 - s2).apply(lambda x: x.total_seconds())
     time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
     return time_diff.cumsum()
+
 
 # sztuczne powiększenie zbioru nqDataset
 def assign_cols(df):
     cond = df['file_2'].apply(lambda x: isinstance(x, float))
 
     df_1 = df[cond == True]     # NaNs as 2. file
-    df_1.drop(columns=['file_2'], inplace=True)
+    df_1 = df_1.drop(columns=['file_2'])
 
     df_2 = df[cond == False]    # 2 files
     df_3 = df_2.drop(columns=['file_2'], inplace=False)
@@ -90,12 +90,13 @@ def which_hand(key):
     else:
         return 'N'
 
+
 def check_assymetry(data, dynamic_feature):
     # mean diff between L and R
     tmpL = data[data['Hand'] == 'L']
     tmpR = data[data['Hand'] == 'R']
     var = abs(tmpL[dynamic_feature].mean() -
-                    tmpR[dynamic_feature].mean())  # abs or not - ?
+              tmpR[dynamic_feature].mean())  # abs or not - ?
     return var
 
 
@@ -109,7 +110,7 @@ def sampling_imbalanced_data(X, y, opt='under'):
     return X_resampl, y_resampl
 
 
-def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
+def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
 
     n_features = 6  # 7
 
@@ -138,7 +139,8 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
 
         va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
 
-        # va[7] = check_assymetry(data, dynamic_feature)
+        if n_features == 7:
+            va[i, 7-1] = check_assymetry(data, dynamic_feature)
 
     return np.nanmean(va, axis=0)
 
@@ -171,8 +173,6 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
     if normalize_option:
         mea = data_orig[dynamic_feature].mean()
         data[dynamic_feature] -= mea
-        # data[dynamic_feature] = data_orig[dynamic_feature].apply(lambda x: x - mea)
-        # df_temp[dynamic_feature] = df_copied[dynamic_feature] - mea
 
     for i in range(n_windows):
 
@@ -182,8 +182,6 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         typical_number += len(df_temp)
         if len(df_temp) < 6:
             flag += 1
-            # print('Not enough samples (', len(df_temp),
-            #       ') in this window - it has to be omitted')
             continue
 
         # first order
@@ -234,21 +232,14 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
         # va[10] = check_assymetry(data, dynamic_feature)
 
-        # print('Flag / n_windows: ', flag, ' / ', n_windows)
-        if n_windows - flag < int(assumed_length/window_time):  # 24
-            warn_flag = 1
-
-        # print('All windows: ', n_windows)
-        # print('Typical number of keys: ', typical_number)
-
-        # if np.count_nonzero(np.isnan(va)) > 0:
-        #     print(va)
-
-        with open('bandwidth_06_10.txt', 'a') as log_file:
-            log_file.writelines(str(np.round(kde.bandwidth,2)) + '\n')
+        with open('bandwidth_18_12.txt', 'a') as log_file:
+            log_file.writelines(str(np.round(kde.bandwidth, 2)) + '\n')
 
     except RuntimeWarning:
         print('Warning was raised as an exception!')
+        warn_flag = 1
+
+    if n_windows - flag < int(assumed_length/window_time):  # 24
         warn_flag = 1
 
     return va, warn_flag
@@ -263,8 +254,20 @@ def search_params(X, Y, model, param_grid):
     grid.fit(X, Y)
     print(grid.best_estimator_)
 
+def cv_meas(data):
+    df_0 = pd.DataFrame.from_dict([data['0.0']])
+    column_names_0 = [el + '_0' for el in list(df_0.columns.values)]
+    df_1 = pd.DataFrame.from_dict([data['1.0']])
+    column_names_1 = [el + '_1' for el in list(df_0.columns.values)]
+    df_macro = pd.DataFrame.from_dict([data['macro avg']])
+    column_names_macro = [
+        el + '_macro' for el in list(df_macro.columns.values)]
+    df_new = pd.concat([df_0, df_1, df_macro], axis=1)
+    df_new.columns = column_names_0+column_names_1+column_names_macro
+    df_new = df_new.loc[:, ~df_new.columns.str.startswith('support')]
+    return df_new
 
-def cross_validation(X, Y, train_func, n_splits=5, save_opt=0):
+def cross_validation(X, Y, train_func, n_splits=5):
     # TO DO: shuffle + random_state = None
     # https://medium.com/mlearning-ai/what-the-heck-is-random-state-24a7a8389f3d
     k_folds = KFold(n_splits=n_splits, shuffle=True)
@@ -283,14 +286,15 @@ def cross_validation(X, Y, train_func, n_splits=5, save_opt=0):
         Y_test = Y[test]
 
         model = train_func(X_train, Y_train)
-        predictions, acc_val, rep = test_selected_model(X_test, Y_test, model)
+        acc_val, rep = test_selected_model(X_test, Y_test, model)
         acc_scores.append(acc_val)
-        print(rep)
 
-        if save_opt:
-            with open('model_'+ str(k+1)+ '.pkl', 'wb') as file:  
-                pickle.dump(model, file)
+        if k == 0:
+            df_meas = cv_meas(rep)
+        else:
+            df_meas = pd.concat([df_meas, cv_meas(rep)], axis=0, ignore_index=True)
 
+    print(df_meas.mean())
     acc_scores = [round(elem, 2) for elem in acc_scores]
     print("Cross Validation Accuracy Scores: ", acc_scores)
     print("Average CV Score: ", np.mean(acc_scores))
@@ -327,10 +331,10 @@ def test_selected_model(x_test, Y_test, model):
     predictions = model.predict(x_test)
     acc_val = accuracy_score(Y_test, predictions)
     rep = classification_report(Y_test, predictions, output_dict=True)
-    return predictions, acc_val, rep
+    return acc_val, rep
 
 
-def train_architecture(X, Y, seed=42, max_epoch_train = 50):
+def train_architecture(X, Y, seed=42, max_epoch_train=50):
 
     # create scaler
     scaler = StandardScaler()
@@ -353,7 +357,7 @@ def train_architecture(X, Y, seed=42, max_epoch_train = 50):
     return trainer
 
 
-def test_architecture(model, X,Y, seed=42, max_epoch_train = 50):
+def test_architecture(model, X, Y):
 
     test_data = TensorDataset(Tensor(X), Tensor(Y))
     test_dataloader = DataLoader(test_data, shuffle=True)
@@ -384,7 +388,8 @@ class nqDataset:
         print('Patients without PD: ', len(
             self.user_info[self.user_info['Parkinsons'] == 0.0]))
         plt.figure(figsize=[4, 3])
-        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info, legend=False, palette=['#432371',"#FAAE7B"])
+        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info,
+                      legend=False, palette=['#432371', "#FAAE7B"])
         plt.xlabel('Parkinson\'s disease')
 
     @staticmethod
@@ -399,7 +404,7 @@ class nqDataset:
 
         return df
 
-    def prepare_dataset(self, path, feature_extract=2):
+    def prepare_dataset(self, path, feature_extract=2, check_assymetry=0):
 
         if feature_extract == 2:
             n_features = 22
@@ -418,7 +423,7 @@ class nqDataset:
 
             if feature_extract == 1:
                 va_HT = feature_extract_method_1(
-                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90)
+                    df_ID, n_features=n_features, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90)
                 self.features[i, :] = va_HT
 
             if feature_extract == 2:
@@ -430,7 +435,7 @@ class nqDataset:
 
             # if typi < 200:
             #     print('Special case - number of keys: ', typi)
-    
+
 
 class tappyDataset:
 
@@ -443,7 +448,7 @@ class tappyDataset:
         df = pd.DataFrame(data=users, columns=['pID'])
 
         if opt == 1:
-            with open('reports_23_08.txt', 'r') as f:
+            with open('reports_18_12.txt', 'r') as f:
                 lsID = f.readlines()
             lsID = '|'.join(lsID)
             clean_lsID = lsID.replace('\n', '')
@@ -475,14 +480,15 @@ class tappyDataset:
         print('Patients without PD: ', len(
             self.user_info[self.user_info['Parkinsons'] == 0.0]))
         plt.figure(figsize=[4, 3])
-        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info, legend=False, palette=['#432371',"#FAAE7B"])
+        sns.countplot(x='Parkinsons', hue='Parkinsons', data=self.user_info,
+                      legend=False, palette=['#432371', "#FAAE7B"])
         plt.xlabel('Parkinson\'s disease')
 
     # TO DO:
     @staticmethod
     def load_record(filename):
         df = pd.read_csv(filename, delimiter="\t", index_col=False, header=None, names=[
-                         'User', 'Date', 'Timestamp', 'Hand', 'holdTime', 'Direction', 'flightTime', 'latencyTime'])
+                         'User', 'Date', 'Timestamp', 'Hand', 'holdTime', 'Direction', 'flightTime', 'latencyTime'], low_memory=False)
 
         df.drop(columns=['User'], inplace=True)
         df.drop(columns=['Direction'], inplace=True)
@@ -494,7 +500,7 @@ class tappyDataset:
         df[df.columns[-3:]] = df[df.columns[-3:]].apply(lambda x: x/1000)
 
         return df
-    
+
     @staticmethod
     def grouping_date(df):
         grouped_data = df.groupby('Date').agg(list)
@@ -515,7 +521,7 @@ class tappyDataset:
         #     print('Nans:', indices_nan)
 
         return ex_rec
-    
+
     def loc_prep(self, i, df_ID, feature_extract):
 
         if feature_extract == 1:
@@ -549,8 +555,8 @@ class tappyDataset:
             # use .apply() instead
 
             # control
-            print('\nIndex: ',i)
-            counter = 0  
+            print('\nIndex: ', i)
+            counter = 0
 
             print('L: ', len(row['files']))
             while counter < len(row['files']):
@@ -570,16 +576,9 @@ class tappyDataset:
                     print('Record not useful, with gt: ', row['Parkinsons'])
                     print('Counter: ', counter)
                     self.flag_fatal.append(i)
-                    with open('reports_06_10.txt', 'a') as log_file:
+                    with open('reports_xx_xx.txt', 'a') as log_file:
                         log_file.writelines(row['pID'] + '\n')
 
                 counter += 1
 
         print('     SUCCESS!!!')
-
-        # # TO DO: do przeniesienia
-        # X_resampl, y_resampl = sampling_imbalanced_data(
-        #     self.features, self.user_info['Parkinsons'].to_numpy(), opt='under')
-
-        # print('flag_fatal: ', self.flag_fatal)
-        
