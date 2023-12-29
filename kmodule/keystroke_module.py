@@ -20,9 +20,10 @@ import pickle
 from torch.utils.data import DataLoader, TensorDataset
 from torch import cuda
 from torch import Tensor
+import torch
 from kmodule.myMLP import MLP
 import pytorch_lightning as pl
-
+from sklearn import metrics as mt
 
 def is_date_parsing(date_str):
     try:
@@ -250,9 +251,10 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 def search_params(X, Y, model, param_grid):
     # param_grid = {'C': [0.1,1, 10, 100], 'gamma': [1,0.1,0.01,0.001],'kernel': ['rbf', 'poly', 'sigmoid']}
     # grid = GridSearchCV(SVC(),param_grid,refit=True,verbose=2)
-    grid = GridSearchCV(model, param_grid, refit=True, verbose=2)
+    grid = GridSearchCV(model, param_grid, refit=True)
     grid.fit(X, Y)
-    print(grid.best_estimator_)
+    print(grid.best_params_)
+    return grid
 
 def cv_meas(data):
     df_0 = pd.DataFrame.from_dict([data['0.0']])
@@ -293,7 +295,7 @@ def cross_validation(X, Y, train_func, n_splits=5):
             df_meas = cv_meas(rep)
         else:
             df_meas = pd.concat([df_meas, cv_meas(rep)], axis=0, ignore_index=True)
-
+        
     print(df_meas.mean())
     acc_scores = [round(elem, 2) for elem in acc_scores]
     print("Cross Validation Accuracy Scores: ", acc_scores)
@@ -303,15 +305,17 @@ def cross_validation(X, Y, train_func, n_splits=5):
 # check different kernels
 def train_SVM_model(x, y):
 
-    clf = make_pipeline(StandardScaler(), SVC(gamma='auto'))
+    # clf = make_pipeline(MinMaxScaler(), SVC(C=100, kernel='rbf', gamma='auto'))
+    clf = make_pipeline(MinMaxScaler(), SVC(C=100, kernel='linear'))
     clf.fit(x, y)
+    print(clf)
     return clf
 
 
-def train_kNN_model(x, y, n_n=3):
+def train_kNN_model(x, y):
 
     clf = make_pipeline(
-        StandardScaler(), KNeighborsClassifier(n_neighbors=n_n))
+        MinMaxScaler(), KNeighborsClassifier(n_neighbors=3, p=1))
     clf.fit(x, y)
     return clf
 
@@ -329,40 +333,42 @@ def train_MLP_model(x, y, lr=0.01, max_it=500):
 
 def test_selected_model(x_test, Y_test, model):
     predictions = model.predict(x_test)
+    print(predictions)
     acc_val = accuracy_score(Y_test, predictions)
     rep = classification_report(Y_test, predictions, output_dict=True)
     return acc_val, rep
 
 
-def train_architecture(X, Y, seed=42, max_epoch_train=50):
+def train_architecture(X, Y, n_features, max_epoch_train=50):
 
-    # create scaler
-    scaler = StandardScaler()
-    # fit and transform in one step
-    X_normalized = scaler.fit_transform(X)
+    training_data = TensorDataset(Tensor(X), Tensor(Y))
 
-    training_data = TensorDataset(Tensor(X_normalized), Tensor(Y))
-    train_dataloader = DataLoader(training_data, shuffle=True)
-
-    pl.seed_everything(seed)
-    mlp = MLP()
+    mo_mlp = MLP(n_features)
     if cuda.is_available():
+        train_dataloader = DataLoader(training_data, batch_size = 8, shuffle=True)
         trainer = pl.Trainer(accelerator='gpu', max_epochs=max_epoch_train)
     else:
         # trainer = pl.Trainer(auto_scale_batch_size='power',
         #                         deterministic=True, max_epochs=max_epoch_train)
+        train_dataloader = DataLoader(training_data, batch_size = 1, shuffle=True)
         trainer = pl.Trainer(max_epochs=max_epoch_train)
 
-    trainer.fit(mlp, train_dataloader)
-    return trainer
+    trainer.fit(mo_mlp, train_dataloader)
+    mo_mlp.plotting()
+    return trainer, mo_mlp
 
 
-def test_architecture(model, X, Y):
+def test_architecture(trainer, model, X, Y):
 
     test_data = TensorDataset(Tensor(X), Tensor(Y))
-    test_dataloader = DataLoader(test_data, shuffle=True)
-    model.test(dataloaders=test_dataloader)
-
+    test_dataloader = DataLoader(test_data, batch_size = 8, shuffle=False)
+    trainer.test(dataloaders=test_dataloader)
+    preds_ls = trainer.predict(model, test_dataloader) 
+    preds = [np.round(np.squeeze(el.numpy())) for el in preds_ls] 
+    preds = np.concatenate(preds)
+    acc_val = accuracy_score(Y, preds)
+    rep = classification_report(Y, preds, output_dict=True)
+    return acc_val, rep
 
 class nqDataset:
     def __init__(self, filename1, filename2):
