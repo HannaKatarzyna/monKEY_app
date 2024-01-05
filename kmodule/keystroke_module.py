@@ -10,7 +10,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split, KFold
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.svm import SVC
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, precision_recall_fscore_support
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
@@ -24,6 +24,8 @@ import torch
 from kmodule.myMLP import MLP
 import pytorch_lightning as pl
 from sklearn import metrics as mt
+
+np.random.seed(42)
 
 def is_date_parsing(date_str):
     try:
@@ -63,7 +65,6 @@ def filter_record(data, key_filter=False):
     df_new = data.drop(data[data['holdTime'] > 1].index, inplace=False)
     df_new.drop(df_new[df_new['holdTime'] < 0].index, inplace=True)
     df_new.drop(df_new[df_new['flightTime'] > 3].index, inplace=True)
-    # df_new.drop(df_new[df_new['releaseTime'] < 0].index, inplace=True)
 
     if key_filter:
         pattern = 'mouse|BackSpace|Shift|Alt|Control|Num_Lock|Return|P_Enter|Caps_Lock|Left|Right|Up|Down'
@@ -103,11 +104,14 @@ def check_assymetry(data, dynamic_feature):
 
 def sampling_imbalanced_data(X, y, opt='under'):
     if str(opt) == 'under':
+        print('UNDERSAMPLING')
         rus = RandomUnderSampler(random_state=None)
         X_resampl, y_resampl = rus.fit_resample(X, y)
     else:
+        print('OVERSAMPLING')
         ros = RandomOverSampler(random_state=None)
         X_resampl, y_resampl = ros.fit_resample(X, y)
+
     return X_resampl, y_resampl
 
 
@@ -115,8 +119,12 @@ def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', tim
 
     n_features = 6  # 7
 
-    # number of non-overlapping windows
-    n_windows = int(assumed_length/window_time)
+    n_windows = int(data[time_feature].iloc[-1]/window_time) # wersja dla Tappy
+    warnings.simplefilter('ignore', RuntimeWarning)
+
+    # # number of non-overlapping windows - version for NQ
+    # n_windows = int(assumed_length/window_time)
+    
     va = np.zeros([n_windows, n_features])
 
     for i in range(n_windows):
@@ -125,7 +133,6 @@ def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', tim
 
         temp = df_temp[dynamic_feature]
         temp = temp[~np.isnan(temp)]
-
         Q1 = temp.quantile(q=0.25)
         Q2 = temp.quantile(q=0.5)
         Q3 = temp.quantile(q=0.75)
@@ -137,7 +144,6 @@ def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', tim
         hist, bin_edges = np.histogram(
             temp, bins=4, density=True, range=(0.0, 0.5))
         vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
-
         va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
 
         if n_features == 7:
@@ -256,66 +262,52 @@ def search_params(X, Y, model, param_grid):
     print(grid.best_params_)
     return grid
 
-def cv_meas(data):
-    df_0 = pd.DataFrame.from_dict([data['0.0']])
-    column_names_0 = [el + '_0' for el in list(df_0.columns.values)]
-    df_1 = pd.DataFrame.from_dict([data['1.0']])
-    column_names_1 = [el + '_1' for el in list(df_0.columns.values)]
-    df_macro = pd.DataFrame.from_dict([data['macro avg']])
-    column_names_macro = [
-        el + '_macro' for el in list(df_macro.columns.values)]
-    df_new = pd.concat([df_0, df_1, df_macro], axis=1)
-    df_new.columns = column_names_0+column_names_1+column_names_macro
-    df_new = df_new.loc[:, ~df_new.columns.str.startswith('support')]
-    return df_new
 
-def cross_validation(X, Y, train_func, n_splits=5):
-    # TO DO: shuffle + random_state = None
-    # https://medium.com/mlearning-ai/what-the-heck-is-random-state-24a7a8389f3d
-    k_folds = KFold(n_splits=n_splits, shuffle=True)
+def cross_validation(X, Y, train_func, n_splits, *args):
+
+    k_folds = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     acc_scores = []
 
     for k, (train, test) in enumerate(k_folds.split(X)):
         print('Number of fold: ', k+1)
-
-        # shuffle again
-        np.random.shuffle(train)
-        np.random.shuffle(test)
 
         X_train = X[train, :]
         Y_train = Y[train]
         X_test = X[test, :]
         Y_test = Y[test]
 
-        model = train_func(X_train, Y_train)
-        acc_val, rep = test_selected_model(X_test, Y_test, model)
+        # X_train, Y_train = sampling_imbalanced_data(X[train, :], Y[train], opt='over')
+
+        model = train_func(X_train, Y_train, *args)
+        acc_val, df_rep = test_selected_model(X_test, Y_test, model)
         acc_scores.append(acc_val)
 
         if k == 0:
-            df_meas = cv_meas(rep)
+            df_meas = df_rep
         else:
-            df_meas = pd.concat([df_meas, cv_meas(rep)], axis=0, ignore_index=True)
-        
+            df_meas = pd.concat([df_meas, df_rep],
+                                axis=0, ignore_index=True)
+
     print(df_meas.mean())
     acc_scores = [round(elem, 2) for elem in acc_scores]
     print("Cross Validation Accuracy Scores: ", acc_scores)
     print("Average CV Score: ", np.mean(acc_scores))
 
 
-# check different kernels
-def train_SVM_model(x, y):
+def train_SVM_model(x, y, *args):
 
-    # clf = make_pipeline(MinMaxScaler(), SVC(C=100, kernel='rbf', gamma='auto'))
-    clf = make_pipeline(MinMaxScaler(), SVC(C=100, kernel='linear'))
+    if len(args)>2:
+        clf = make_pipeline(MinMaxScaler(), SVC(C=args[0], kernel=args[1], gamma=args[2]))
+    else:
+        clf = make_pipeline(MinMaxScaler(), SVC(C=args[0], kernel=args[1]))
     clf.fit(x, y)
-    print(clf)
     return clf
 
 
-def train_kNN_model(x, y):
+def train_kNN_model(x, y, *args):
 
     clf = make_pipeline(
-        MinMaxScaler(), KNeighborsClassifier(n_neighbors=3, p=1))
+        MinMaxScaler(), KNeighborsClassifier(n_neighbors=args[0], p=args[1]))
     clf.fit(x, y)
     return clf
 
@@ -333,10 +325,11 @@ def train_MLP_model(x, y, lr=0.01, max_it=500):
 
 def test_selected_model(x_test, Y_test, model):
     predictions = model.predict(x_test)
-    print(predictions)
     acc_val = accuracy_score(Y_test, predictions)
-    rep = classification_report(Y_test, predictions, output_dict=True)
-    return acc_val, rep
+    # rep = classification_report(Y_test, predictions, output_dict=True)
+    rep = precision_recall_fscore_support(Y_test, predictions, average='binary', pos_label=1)
+    df_rep = pd.DataFrame([rep], columns =['precision', 'recall', 'fscore','support'])
+    return acc_val, df_rep
 
 
 def train_architecture(X, Y, n_features, max_epoch_train=50):
@@ -345,12 +338,12 @@ def train_architecture(X, Y, n_features, max_epoch_train=50):
 
     mo_mlp = MLP(n_features)
     if cuda.is_available():
-        train_dataloader = DataLoader(training_data, batch_size = 8, shuffle=True)
+        train_dataloader = DataLoader(
+            training_data, batch_size=8, shuffle=True)
         trainer = pl.Trainer(accelerator='gpu', max_epochs=max_epoch_train)
     else:
-        # trainer = pl.Trainer(auto_scale_batch_size='power',
-        #                         deterministic=True, max_epochs=max_epoch_train)
-        train_dataloader = DataLoader(training_data, batch_size = 1, shuffle=True)
+        train_dataloader = DataLoader(
+            training_data, batch_size=1, shuffle=True)
         trainer = pl.Trainer(max_epochs=max_epoch_train)
 
     trainer.fit(mo_mlp, train_dataloader)
@@ -361,14 +354,15 @@ def train_architecture(X, Y, n_features, max_epoch_train=50):
 def test_architecture(trainer, model, X, Y):
 
     test_data = TensorDataset(Tensor(X), Tensor(Y))
-    test_dataloader = DataLoader(test_data, batch_size = 8, shuffle=False)
+    test_dataloader = DataLoader(test_data, batch_size=8, shuffle=False)
     trainer.test(dataloaders=test_dataloader)
-    preds_ls = trainer.predict(model, test_dataloader) 
-    preds = [np.round(np.squeeze(el.numpy())) for el in preds_ls] 
+    preds_ls = trainer.predict(model, test_dataloader)
+    preds = [np.round(np.squeeze(el.numpy())) for el in preds_ls]
     preds = np.concatenate(preds)
     acc_val = accuracy_score(Y, preds)
     rep = classification_report(Y, preds, output_dict=True)
     return acc_val, rep
+
 
 class nqDataset:
     def __init__(self, filename1, filename2):
@@ -531,9 +525,11 @@ class tappyDataset:
     def loc_prep(self, i, df_ID, feature_extract):
 
         if feature_extract == 1:
-            va_HT, warn_flag = feature_extract_method_1(
-                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=90)
+            va_HT = feature_extract_method_1(
+                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=15)
             self.features[i, :] = va_HT
+            print(va_HT)
+            warn_flag = 0
 
         if feature_extract == 2:
             va_HT, warn_flag = feature_extract_method_2(
