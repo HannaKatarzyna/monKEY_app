@@ -4,19 +4,30 @@ from kmodule.keystroke_module import *
 import numpy as np
 
 ##
-X = np.load('nq_ex1_features.npy')
-Y = np.load('nq_ex1_gt.npy')
+X = np.load(str(sys.argv[1])+'_ex1_features.npy')
+Y = np.load(str(sys.argv[1])+'_ex1_gt.npy')
 
-# print('  KNN')
-# cross_validation(X, Y, train_func=train_kNN_model)
+print('\n  SVM for ex1 and '+str(sys.argv[1]))
+cross_validation(X, Y, train_SVM_model, 5, 100, 'rbf', 'auto')
 
-print('  SVM')
-cross_validation(X, Y, train_func=train_SVM_model)
+print('\n  KNN for ex1 and '+str(sys.argv[1]))
+cross_validation(X, Y, train_kNN_model, 5, 5, 1)
 
-# if len(sys.argv)>1:
+##
+X = np.load(str(sys.argv[1])+'_ex2_features.npy')
+Y = np.load(str(sys.argv[1])+'_ex2_gt.npy')
+
+print('\n  SVM for ex2 and '+str(sys.argv[1]))
+cross_validation(X, Y, train_SVM_model, 5, 100, 'linear')
+
+print('\n  KNN for ex2 and '+str(sys.argv[1]))
+cross_validation(X, Y, train_kNN_model, 5, 3, 1)
+
+# # train model with best hiperparams
+# if len(sys.argv)>2:
 #     # https://machinelearningmastery.com/train-final-machine-learning-model/
 #     model = train_kNN_model(X, Y, n_n=3)
-#     with open('model_' + str(sys.argv[1]) + '.pkl', 'wb') as file:
+#     with open('model_' + str(sys.argv[2]) + '.pkl', 'wb') as file:
 #         pickle.dump(model, file)
 
 
