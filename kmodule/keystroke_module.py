@@ -27,6 +27,7 @@ from sklearn import metrics as mt
 
 np.random.seed(42)
 
+
 def is_date_parsing(date_str):
     try:
         return bool(date_parser.parse(date_str))
@@ -93,12 +94,11 @@ def which_hand(key):
         return 'N'
 
 
-def check_assymetry(data, dynamic_feature):
+def check_asymmetry(data, dynamic_feature):
     # mean diff between L and R
     tmpL = data[data['Hand'] == 'L']
     tmpR = data[data['Hand'] == 'R']
-    var = abs(tmpL[dynamic_feature].mean() -
-              tmpR[dynamic_feature].mean())  # abs or not - ?
+    var = tmpL[dynamic_feature].mean() - tmpR[dynamic_feature].mean()
     return var
 
 
@@ -115,16 +115,17 @@ def sampling_imbalanced_data(X, y, opt='under'):
     return X_resampl, y_resampl
 
 
-def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
+def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90, normalize_option=False):
 
-    n_features = 6  # 7
+    n_features = 6
 
-    n_windows = int(data[time_feature].iloc[-1]/window_time) # wersja dla Tappy
+    n_windows = int(data[time_feature].iloc[-1] /
+                    window_time)  # wersja dla Tappy
     warnings.simplefilter('ignore', RuntimeWarning)
 
     # # number of non-overlapping windows - version for NQ
     # n_windows = int(assumed_length/window_time)
-    
+
     va = np.zeros([n_windows, n_features])
 
     for i in range(n_windows):
@@ -146,13 +147,10 @@ def feature_extract_method_1(data, n_features=6, dynamic_feature='holdTime', tim
         vhist1, vhist2, vhist3, vhist4 = hist * np.diff(bin_edges)
         va[i, :] = np.array([vout, viqr, vhist1, vhist2, vhist3, vhist4])
 
-        if n_features == 7:
-            va[i, 7-1] = check_assymetry(data, dynamic_feature)
-
     return np.nanmean(va, axis=0)
 
 
-def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
+def feature_extract_method_2(data_orig, n_features=11, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=15, normalize_option=False):
 
     # number of non-overlapping windows
     # n_windows = int(assumed_length/window_time)
@@ -219,7 +217,7 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
 
         # axs.plot(t_inter, log_density)
 
-    va = np.zeros(11)
+    va = np.zeros(n_features)
     try:
         for i in range(4):
             va[i*2], va[i*2+1] = np.nanmean(stat_moments[i, :]
@@ -237,7 +235,8 @@ def feature_extract_method_2(data_orig, dynamic_feature='holdTime', time_feature
         va[9] = np.std(upper_triangle, ddof=1)
         va[10] = np.sum(upper_triangle)
 
-        # va[10] = check_assymetry(data, dynamic_feature)
+        if n_features == 12:
+            va[11] = check_asymmetry(data, dynamic_feature)
 
         with open('bandwidth_18_12.txt', 'a') as log_file:
             log_file.writelines(str(np.round(kde.bandwidth, 2)) + '\n')
@@ -276,7 +275,8 @@ def cross_validation(X, Y, train_func, n_splits, *args):
         X_test = X[test, :]
         Y_test = Y[test]
 
-        # X_train, Y_train = sampling_imbalanced_data(X[train, :], Y[train], opt='over')
+        X_train, Y_train = sampling_imbalanced_data(
+            X[train, :], Y[train], opt='under')
 
         model = train_func(X_train, Y_train, *args)
         acc_val, df_rep = test_selected_model(X_test, Y_test, model)
@@ -296,8 +296,9 @@ def cross_validation(X, Y, train_func, n_splits, *args):
 
 def train_SVM_model(x, y, *args):
 
-    if len(args)>2:
-        clf = make_pipeline(MinMaxScaler(), SVC(C=args[0], kernel=args[1], gamma=args[2]))
+    if len(args) > 2:
+        clf = make_pipeline(MinMaxScaler(), SVC(
+            C=args[0], kernel=args[1], gamma=args[2]))
     else:
         clf = make_pipeline(MinMaxScaler(), SVC(C=args[0], kernel=args[1]))
     clf.fit(x, y)
@@ -326,9 +327,10 @@ def train_MLP_model(x, y, lr=0.01, max_it=500):
 def test_selected_model(x_test, Y_test, model):
     predictions = model.predict(x_test)
     acc_val = accuracy_score(Y_test, predictions)
-    # rep = classification_report(Y_test, predictions, output_dict=True)
-    rep = precision_recall_fscore_support(Y_test, predictions, average='binary', pos_label=1)
-    df_rep = pd.DataFrame([rep], columns =['precision', 'recall', 'fscore','support'])
+    rep = precision_recall_fscore_support(
+        Y_test, predictions, average='binary', pos_label=1)
+    df_rep = pd.DataFrame(
+        [rep], columns=['precision', 'recall', 'fscore', 'support'])
     return acc_val, df_rep
 
 
@@ -360,12 +362,15 @@ def test_architecture(trainer, model, X, Y):
     preds = [np.round(np.squeeze(el.numpy())) for el in preds_ls]
     preds = np.concatenate(preds)
     acc_val = accuracy_score(Y, preds)
-    rep = classification_report(Y, preds, output_dict=True)
-    return acc_val, rep
+    rep = precision_recall_fscore_support(
+        Y, preds, average='binary', pos_label=1)
+    df_rep = pd.DataFrame(
+        [rep], columns=['precision', 'recall', 'fscore', 'support'])
+    return acc_val, df_rep
 
 
 class nqDataset:
-    def __init__(self, filename1, filename2):
+    def __init__(self, filename1, filename2, st_asym=0):
 
         # load data
         df1 = pd.read_csv(filename1)
@@ -381,6 +386,7 @@ class nqDataset:
         self.user_info = assign_cols(df_conc)
         self.features = None
         self.ground_truth = self.user_info['Parkinsons'].to_numpy()
+        self.state_asymmetry = st_asym
 
     def show_stats(self):
         print('Patients with PD: ', len(
@@ -404,12 +410,12 @@ class nqDataset:
 
         return df
 
-    def prepare_dataset(self, path, feature_extract=2, check_assymetry=0):
+    def prepare_dataset(self, path, feature_extract=2):
 
         if feature_extract == 2:
-            n_features = 22
+            n_features = 22 + 2*self.state_asymmetry
         else:
-            n_features = 6  # *2
+            n_features = 6
 
         self.features = np.zeros([len(self.user_info), n_features])
 
@@ -423,14 +429,14 @@ class nqDataset:
 
             if feature_extract == 1:
                 va_HT = feature_extract_method_1(
-                    df_ID, n_features=n_features, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90)
+                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=90)
                 self.features[i, :] = va_HT
 
             if feature_extract == 2:
                 va_HT, _ = feature_extract_method_2(
-                    df_ID, dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
+                    df_ID, n_features=int(n_features/2), dynamic_feature='holdTime', time_feature='releaseTime', assumed_length=360, window_time=20)
                 va_NFT, _ = feature_extract_method_2(
-                    df_ID, dynamic_feature='flightTime', time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
+                    df_ID, n_features=int(n_features/2), dynamic_feature='flightTime', time_feature='releaseTime', assumed_length=360, window_time=20, normalize_option=True)
                 self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
 
             # if typi < 200:
@@ -533,9 +539,9 @@ class tappyDataset:
 
         if feature_extract == 2:
             va_HT, warn_flag = feature_extract_method_2(
-                df_ID, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=15)
+                df_ID, n_features=11, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=360, window_time=15)
             va_NFT, warn_flag = feature_extract_method_2(
-                df_ID, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=360, window_time=15, normalize_option=True)
+                df_ID, n_features=11, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=360, window_time=15, normalize_option=True)
             self.features[i, :] = np.concatenate([va_HT, va_NFT], axis=0)
 
         return warn_flag
