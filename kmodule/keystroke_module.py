@@ -23,6 +23,7 @@ from torch import Tensor
 import torch
 from kmodule.myMLP import MLP
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 from sklearn import metrics as mt
 
 np.random.seed(42)
@@ -119,12 +120,12 @@ def feature_extract_method_1(data, dynamic_feature='holdTime', time_feature='rel
 
     n_features = 6
 
-    n_windows = int(data[time_feature].iloc[-1] /
-                    window_time)  # wersja dla Tappy
-    warnings.simplefilter('ignore', RuntimeWarning)
+    # n_windows = int(data[time_feature].iloc[-1] /
+    #                 window_time)  # wersja dla Tappy
+    # warnings.simplefilter('ignore', RuntimeWarning)
 
-    # # number of non-overlapping windows - version for NQ
-    # n_windows = int(assumed_length/window_time)
+    # number of non-overlapping windows - version for NQ
+    n_windows = int(assumed_length/window_time)
 
     va = np.zeros([n_windows, n_features])
 
@@ -275,8 +276,8 @@ def cross_validation(X, Y, train_func, n_splits, *args):
         X_test = X[test, :]
         Y_test = Y[test]
 
-        X_train, Y_train = sampling_imbalanced_data(
-            X[train, :], Y[train], opt='under')
+        # X_train, Y_train = sampling_imbalanced_data(
+        #     X[train, :], Y[train], opt='under')
 
         model = train_func(X_train, Y_train, *args)
         acc_val, df_rep = test_selected_model(X_test, Y_test, model)
@@ -338,17 +339,20 @@ def train_architecture(X, Y, n_features, max_epoch_train=50):
 
     training_data = TensorDataset(Tensor(X), Tensor(Y))
 
+    checkpoint_callback = ModelCheckpoint(monitor='train_loss', dirpath='../models/')
+
     mo_mlp = MLP(n_features)
     if cuda.is_available():
         train_dataloader = DataLoader(
             training_data, batch_size=8, shuffle=True)
-        trainer = pl.Trainer(accelerator='gpu', max_epochs=max_epoch_train)
+        trainer = pl.Trainer(callbacks=[checkpoint_callback], accelerator='gpu', max_epochs=max_epoch_train)
     else:
         train_dataloader = DataLoader(
             training_data, batch_size=1, shuffle=True)
-        trainer = pl.Trainer(max_epochs=max_epoch_train)
-
+        trainer = pl.Trainer(callbacks=[checkpoint_callback], max_epochs=max_epoch_train)
+   
     trainer.fit(mo_mlp, train_dataloader)
+    # print(checkpoint_callback.best_model_path)
     mo_mlp.plotting()
     return trainer, mo_mlp
 
