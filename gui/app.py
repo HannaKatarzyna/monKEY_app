@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import sys
+sys.path.append('../')
 from kmodule.myMLP import *
 from kmodule.keystroke_module import feature_extract_method_2
 from main_window_ui import Ui_Dialog
@@ -16,8 +18,6 @@ import re
 import os
 import pandas as pd
 from datetime import datetime
-import sys
-sys.path.append('../')
 
 
 def count_time_from_0(df):
