@@ -1,3 +1,7 @@
+import torch
+import numpy as np
+from kmodule.myMLP import *
+from kmodule.keystroke_module import feature_extract_method_2
 from main_window_ui import Ui_Dialog
 from loginForm_ui import Ui_monKEY
 from PyQt5.QtWidgets import (
@@ -9,13 +13,11 @@ from PyQt5.QtMultimedia import QSound
 from argon2.exceptions import VerifyMismatchError
 from argon2 import PasswordHasher
 import re
+import os
 import pandas as pd
-from time import strftime
 from datetime import datetime
-import pickle
 import sys
 sys.path.append('../')
-from kmodule.keystroke_module import feature_extract_method_1
 
 
 def count_time_from_0(df):
@@ -24,6 +26,43 @@ def count_time_from_0(df):
     time_diff = (s1 - s2).apply(lambda x: x.total_seconds())
     time_diff = pd.concat([pd.Series(0.0), time_diff], ignore_index=True)
     return time_diff.cumsum()
+
+
+def measure_ended(file):
+    df = pd.read_csv(file, delimiter=" ", index_col=False,
+                     header=None, names=['Press', 'Release', 'Hand'])
+    df_p = df['Press'].apply(lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
+    df_r = df['Release'].apply(
+        lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
+    df['holdTime'] = (df_r - df_p).apply(lambda x: x.total_seconds())
+    df['timeLapse'] = count_time_from_0(df_p)
+
+    df_p = df_p.iloc[1:].reset_index(drop=True)
+    df_r = df_r.iloc[:-1].reset_index(drop=True)
+    df['flightTime'] = pd.concat([pd.Series(
+        0.0), (df_p-df_r).apply(lambda x: x.total_seconds())], ignore_index=True)
+    df['latencyTime'] = df['flightTime'] + \
+        pd.concat([pd.Series(0.0), df['holdTime']], ignore_index=True)
+
+    va_HT = feature_extract_method_2(
+        df, n_features=12, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=120, window_time=15)
+    va_NFT = feature_extract_method_2(
+        df, n_features=12, dynamic_feature='flightTime', time_feature='timeLapse', assumed_length=120, window_time=15, normalize_option=True)
+    va = np.concatenate([va_HT[0], va_NFT[0]], axis=0)
+    va = va.reshape((1, -1))
+
+    # load model from pickle file (PyTORCH version)
+    model = MLP.load_from_checkpoint(
+        '../models/model_mlp.ckpt', map_location=torch.device("cpu"), encoder_map_location=torch.device("cpu"))
+    model.eval()
+    Y = model(torch.Tensor(va))
+    Y = np.round(np.squeeze(Y.detach().numpy()))
+
+    # # load model from pickle file (SKLEARN version)
+    # with open('../models/model_svm.pkl', 'rb') as file:
+    #     model = pickle.load(file)
+    # Y = model.predict(va)
+    return Y
 
 
 def check_password_validity(password):
@@ -55,7 +94,7 @@ class Window(QWidget, Ui_Dialog):
         self.setupUi(self)
         self.resultLabel.hide()
         self.lcdNumber.display("00:00")
-        self.sound_file = QSound("ImperialMarch60.wav")
+        self.sound_file = QSound("podcast.wav")
         self.timestamp = None
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.timeUp)
@@ -83,39 +122,15 @@ class Window(QWidget, Ui_Dialog):
         self.sound_file.stop()
         self.lcdNumber.display("00:00")
 
-        df = pd.read_csv('exam.txt', delimiter=" ", index_col=False,
-                         header=None, names=['Press', 'Release', 'Hand'])
-        df_p = df['Press'].apply(lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
-        df_r = df['Release'].apply(
-            lambda x: datetime.strptime(x, '%H:%M:%S.%f'))
-        df['holdTime'] = (df_r - df_p).apply(lambda x: x.total_seconds())
-        df['timeLapse'] = count_time_from_0(df_p)
-
-        df_p = df_p.iloc[1:].reset_index(drop=True)
-        df_r = df_r.iloc[:-1].reset_index(drop=True)
-        df['flightTime'] = pd.concat([pd.Series(
-            0.0), (df_p-df_r).apply(lambda x: x.total_seconds())], ignore_index=True)
-        df['latencyTime'] = df['flightTime'] + \
-            pd.concat([pd.Series(0.0), df['holdTime']], ignore_index=True)
-
-        print(df.head())
-        va_HT = feature_extract_method_1(
-            df, dynamic_feature='holdTime', time_feature='timeLapse', assumed_length=180, window_time=90)
-
-        # load model from pickle file (PyTORCH version)
-
-        # load model from pickle file (SKLEARN version)
-        with open('../models/model_2.pkl', 'rb') as file:
-            model = pickle.load(file)
-
-        Y = model.predict(va_HT.reshape((1, -1)))
-        print("Result: ", Y)
+        Y = measure_ended('exam_cor.txt')
         if Y:
             text = "Motor functions disorder was detect. Please, contact with your doctor."
         else:
             text = "Any motor functions disorder was detect."
         self.resultLabel.setText("Your result: "+text)
         self.resultLabel.show()
+        if os.path.isfile("exam.txt"):
+            os.remove("exam.txt")
 
     def connectSignalsSlots(self):
         self.startButton.clicked.connect(self.startRecording)
@@ -132,10 +147,6 @@ class initWindow(QMainWindow, Ui_monKEY):
         self.con = QSqlDatabase.addDatabase('QSQLITE')
         self.con.setDatabaseName("../database/DatabaseMonKEY.db")
         self.connectSignalsSlots()
-
-    # def resizeEvent(self, event):
-    #     print("resizing is not able now") -> provide by layouts
-    #     # QMainWindow.resizeEvent(self, event)
 
     @staticmethod
     def info_box(text):
@@ -157,7 +168,6 @@ class initWindow(QMainWindow, Ui_monKEY):
         self.loginButton.show()
 
     def loggingOut(self):
-        # are you sure to logout - message box -?
         self.win.close()
         self.clearing_log()
         self.show()
@@ -204,7 +214,7 @@ class initWindow(QMainWindow, Ui_monKEY):
             print("database not found!")
         else:
             query_existing = QSqlQuery()
-            query_str = f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))"""
+            # query_str = f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))"""
             query_existing.exec(
                 f"""SELECT EXISTS(SELECT 1 FROM users WHERE username=('{out_username}'))""")
             query_existing.first()
@@ -248,8 +258,3 @@ if __name__ == "__main__":
     init_win = initWindow()
     init_win.show()
     sys.exit(app.exec())
-
-
-# TO DO: change layouts
-# TO DO: add limits for user char number and password limits
-# REQUIREMENTS: sqlite3

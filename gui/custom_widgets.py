@@ -23,8 +23,6 @@ class MyQTextEdit(QTextEdit):
     flag: bool
     current_keys = {}
 
-    # def __init__(self, UI, layout):
-    #     super().__init__(UI, layout)
     def __init__(self, layout):
         super().__init__(layout)
         self.flag = False
@@ -34,7 +32,6 @@ class MyQTextEdit(QTextEdit):
         if self.flag:
             ts = datetime.now().strftime('%H:%M:%S.%f')
             pressed = eventQKeyEvent.key()
-            print(pressed)
             self.current_keys[pressed] = ts
 
     def keyReleaseEvent(self, eventQKeyEvent):
