@@ -1,15 +1,13 @@
 # MasterDiploma - monKEY App
 This application was designed as part of master thesis. The aim of monKEY is to demonstrate the algorithms' performence and effect. The software should be considered as prototype of the solution.
 
-Create virtual env:
+Create virtual environment:
 ```
-py -m venv ./project_venv
-or
-python -m venv pro-env
+python -m venv .venv
 ```
-Activate your env:
+Activate your environment:
 ```
-project_venv\Scripts\activate.bat 
+.venv\Scripts\activate.bat 
 ```
 Manage packages:
 ```
