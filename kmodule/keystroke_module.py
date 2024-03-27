@@ -5,26 +5,22 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity, KNeighborsClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import GridSearchCV, train_test_split, KFold
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.svm import SVC
-from sklearn.metrics import classification_report, accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 from dateutil import parser as date_parser
 from datetime import datetime
 import warnings
-import pickle
 from torch.utils.data import DataLoader, TensorDataset
 from torch import cuda
 from torch import Tensor
-import torch
 from kmodule.myMLP import MLP
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from sklearn import metrics as mt
 
 np.random.seed(42)
 
@@ -165,7 +161,6 @@ def feature_extract_method_2(data_orig, n_features=11, dynamic_feature='holdTime
     data_for_cov = np.empty((n_windows, len(t_inter)))
     data_for_cov.fill(np.nan)
 
-    typical_number = 0
     flag = 0
 
     data = data_orig.copy()
@@ -175,7 +170,7 @@ def feature_extract_method_2(data_orig, n_features=11, dynamic_feature='holdTime
 
     # fig, axs = plt.subplots(figsize=[4, 3])
 
-    # to normalize here only for FLIGHT TIME: zero-mean
+    # zero-mean normalization
     if normalize_option:
         mea = data_orig[dynamic_feature].mean()
         data[dynamic_feature] -= mea
@@ -184,8 +179,7 @@ def feature_extract_method_2(data_orig, n_features=11, dynamic_feature='holdTime
 
         df_temp = data[(data[time_feature] > i*window_time)
                        & (data[time_feature] < (i+1)*window_time)]
-
-        typical_number += len(df_temp)
+        
         if len(df_temp) < 6:
             flag += 1
             continue
@@ -250,8 +244,6 @@ def feature_extract_method_2(data_orig, n_features=11, dynamic_feature='holdTime
         warn_flag = 1
 
     return va, warn_flag
-# https://scikit-learn.org/stable/modules/density.html#kernel-density-estimation
-# https://stackabuse.com/kernel-density-estimation-in-python-using-scikit-learn/
 
 
 def search_params(X, Y, model, param_grid):
@@ -310,17 +302,6 @@ def train_kNN_model(x, y, *args):
 
     clf = make_pipeline(
         MinMaxScaler(), KNeighborsClassifier(n_neighbors=args[0], p=args[1]))
-    clf.fit(x, y)
-    return clf
-
-
-# https://stackoverflow.com/questions/35363530/python-scikit-learn-mlpclassifier-hidden-layer-sizes
-def train_MLP_model(x, y, lr=0.01, max_it=500):
-
-    clf = make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(
-        x.shape[0]-1, int(x.shape[0]/2), 3, ), activation='relu', solver='adam',
-        batch_size='auto', learning_rate='adaptive', learning_rate_init=lr,
-        random_state=2, max_iter=max_it))
     clf.fit(x, y)
     return clf
 
